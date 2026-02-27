@@ -11,7 +11,7 @@ import pytest
 
 
 # Add the conversation-metrics directory to the path
-PACKAGE_DIR = Path(__file__).parent.parent / "conversation-metrics"
+PACKAGE_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(PACKAGE_DIR))
 
 from oh_api import APIClient, APIError

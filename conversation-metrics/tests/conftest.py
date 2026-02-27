@@ -7,12 +7,10 @@ from pathlib import Path
 
 import pytest
 
-
-# Add the conversation-metrics directory to the path
-PACKAGE_DIR = Path(__file__).parent.parent / "conversation-metrics"
+# Add the parent directory (conversation-metrics) to the path
+PACKAGE_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(PACKAGE_DIR))
 
-# Import after path setup
 from oh_api import APIClient  # noqa: E402
 
 
