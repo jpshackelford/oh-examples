@@ -1,9 +1,16 @@
 ---
 name: PR Review by OpenHands
 
+# DISABLED: Waiting for upstream fix
+# See: https://github.com/OpenHands/software-agent-sdk/issues/2239
+# The action fails when target repo has pyproject.toml due to uv run
+# creating a new venv instead of using system-installed packages.
+
 on:
-    pull_request:
-        types: [opened, ready_for_review, labeled, review_requested]
+    # Temporarily disabled - uncomment when upstream is fixed
+    # pull_request:
+    #     types: [opened, ready_for_review, labeled, review_requested]
+    workflow_dispatch:  # Allow manual trigger for testing
 
 permissions:
     contents: read
