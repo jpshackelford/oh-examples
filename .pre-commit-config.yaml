@@ -1,0 +1,48 @@
+---
+repos:
+    - repo: https://github.com/jumanjihouse/pre-commit-hook-yamlfmt
+      rev: 0.2.1
+      hooks:
+          - id: yamlfmt
+
+    - repo: https://github.com/pre-commit/pre-commit-hooks
+      rev: v5.0.0
+      hooks:
+          - id: trailing-whitespace
+          - id: end-of-file-fixer
+          - id: check-yaml
+          - id: check-added-large-files
+
+    - repo: local
+      hooks:
+          - id: ruff-format
+            name: Ruff format
+            entry: uv
+            args: [run, ruff, format]
+            language: system
+            types: [python]
+            pass_filenames: true
+
+          - id: ruff-check
+            name: Ruff lint
+            entry: uv
+            args: [run, ruff, check, --fix, --exit-non-zero-on-fix]
+            language: system
+            types: [python]
+            pass_filenames: true
+
+          - id: pycodestyle
+            name: PEP8 style check
+            entry: uv
+            args: [run, pycodestyle, --max-line-length=88, '--ignore=E203,E501,W503']
+            language: system
+            types: [python]
+            pass_filenames: true
+
+          - id: pyright
+            name: Type check with pyright
+            entry: uv
+            args: [run, pyright]
+            language: system
+            types: [python]
+            pass_filenames: false

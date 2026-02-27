@@ -17,8 +17,8 @@ import argparse
 import json
 import os
 import sys
-from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 
 DEFAULT_BASE_URL = "https://app.all-hands.dev"
@@ -29,7 +29,7 @@ def make_request(url: str, api_key: str) -> dict | None:
     req = Request(url)
     req.add_header("Authorization", f"Bearer {api_key}")
     req.add_header("Accept", "application/json")
-    
+
     try:
         with urlopen(req, timeout=30) as response:
             return json.loads(response.read().decode())
@@ -42,7 +42,9 @@ def make_request(url: str, api_key: str) -> dict | None:
         sys.exit(1)
 
 
-def get_conversation_info(base_url: str, conversation_id: str, api_key: str) -> dict | None:
+def get_conversation_info(
+    base_url: str, conversation_id: str, api_key: str
+) -> dict | None:
     """Get basic conversation info to determine version."""
     url = f"{base_url}/api/conversations/{conversation_id}"
     return make_request(url, api_key)
@@ -52,51 +54,59 @@ def get_v1_metrics(base_url: str, conversation_id: str, api_key: str) -> dict | 
     """Get metrics from V1 API (app-conversations endpoint)."""
     url = f"{base_url}/api/v1/app-conversations?ids={conversation_id}"
     result = make_request(url, api_key)
-    
+
     if result and isinstance(result, list) and len(result) > 0:
         return result[0]
     return None
 
 
-def get_v0_metrics_from_events(base_url: str, conversation_id: str, api_key: str) -> dict | None:
+def get_v0_metrics_from_events(
+    base_url: str, conversation_id: str, api_key: str
+) -> dict | None:
     """Get metrics from V0 events endpoint (finds latest llm_metrics in events)."""
-    url = f"{base_url}/api/conversations/{conversation_id}/events?limit=100&reverse=true"
+    url = (
+        f"{base_url}/api/conversations/{conversation_id}/events?limit=100&reverse=true"
+    )
     result = make_request(url, api_key)
-    
+
     if not result or "events" not in result:
         return None
-    
+
     # Find the most recent event with llm_metrics
     for event in result["events"]:
         if "llm_metrics" in event:
             return event["llm_metrics"]
-    
+
     return None
 
 
-def get_v0_metrics_from_trajectory(base_url: str, conversation_id: str, api_key: str) -> dict | None:
+def get_v0_metrics_from_trajectory(
+    base_url: str, conversation_id: str, api_key: str
+) -> dict | None:
     """Get metrics from V0 trajectory endpoint (fallback)."""
     url = f"{base_url}/api/conversations/{conversation_id}/trajectory"
     result = make_request(url, api_key)
-    
+
     if not result:
         return None
-    
+
     # Handle both formats: {"trajectory": [...]} or direct list
     events = result.get("trajectory", result) if isinstance(result, dict) else result
-    
+
     if not isinstance(events, list):
         return None
-    
+
     # Find the most recent event with llm_metrics (iterate in reverse)
     for event in reversed(events):
         if isinstance(event, dict) and "llm_metrics" in event:
             return event["llm_metrics"]
-    
+
     return None
 
 
-def format_metrics(metrics: dict, conversation_id: str, version: str, title: str = None) -> str:
+def format_metrics(
+    metrics: dict, conversation_id: str, version: str, title: str = None
+) -> str:
     """Format metrics for display."""
     lines = []
     lines.append(f"{'─' * 60}")
@@ -105,66 +115,68 @@ def format_metrics(metrics: dict, conversation_id: str, version: str, title: str
         lines.append(f"Title: {title}")
     lines.append(f"API Version: {version}")
     lines.append(f"{'─' * 60}")
-    
+
     # Extract cost
     cost = metrics.get("accumulated_cost", 0)
     lines.append(f"💰 Total Cost: ${cost:.6f} USD")
-    
+
     # Extract token usage
     token_usage = metrics.get("accumulated_token_usage", {})
     if not token_usage and "prompt_tokens" in metrics:
         # Handle flat structure
         token_usage = metrics
-    
+
     prompt_tokens = token_usage.get("prompt_tokens", 0)
     completion_tokens = token_usage.get("completion_tokens", 0)
     cache_read = token_usage.get("cache_read_tokens", 0)
     cache_write = token_usage.get("cache_write_tokens", 0)
     reasoning_tokens = token_usage.get("reasoning_tokens", 0)
     context_window = token_usage.get("context_window", 0)
-    
+
     total_tokens = prompt_tokens + completion_tokens
-    
+
     lines.append("")
     lines.append("📊 Token Usage:")
     lines.append(f"   Prompt tokens:     {prompt_tokens:,}")
     lines.append(f"   Completion tokens: {completion_tokens:,}")
     lines.append(f"   Total tokens:      {total_tokens:,}")
-    
+
     if cache_read or cache_write:
         lines.append("")
         lines.append("🗄️  Cache:")
         lines.append(f"   Cache read:        {cache_read:,}")
         lines.append(f"   Cache write:       {cache_write:,}")
-    
+
     if reasoning_tokens:
         lines.append("")
         lines.append(f"🧠 Reasoning tokens:  {reasoning_tokens:,}")
-    
+
     if context_window:
         lines.append("")
         lines.append(f"📐 Context window:    {context_window:,}")
-    
+
     lines.append(f"{'─' * 60}")
-    
+
     return "\n".join(lines)
 
 
-def get_metrics(base_url: str, conversation_id: str, api_key: str, output_json: bool = False) -> int:
+def get_metrics(
+    base_url: str, conversation_id: str, api_key: str, output_json: bool = False
+) -> int:
     """Main function to get metrics for a conversation."""
-    
+
     # First, get conversation info to determine version
     conv_info = get_conversation_info(base_url, conversation_id, api_key)
-    
+
     if not conv_info:
         print(f"Error: Conversation '{conversation_id}' not found", file=sys.stderr)
         return 1
-    
+
     version = conv_info.get("conversation_version", "V0")
     title = conv_info.get("title")
     metrics = None
     api_used = None
-    
+
     if version == "V1":
         # Try V1 API first for V1 conversations
         v1_data = get_v1_metrics(base_url, conversation_id, api_key)
@@ -172,36 +184,41 @@ def get_metrics(base_url: str, conversation_id: str, api_key: str, output_json: 
             metrics = v1_data["metrics"]
             api_used = "V1 (app-conversations)"
             title = v1_data.get("title", title)
-    
+
     if not metrics:
         # Try V0 events endpoint
         metrics = get_v0_metrics_from_events(base_url, conversation_id, api_key)
         if metrics:
             api_used = "V0 (events)"
-    
+
     if not metrics:
         # Fallback to trajectory endpoint
         metrics = get_v0_metrics_from_trajectory(base_url, conversation_id, api_key)
         if metrics:
             api_used = "V0 (trajectory)"
-    
+
     if not metrics:
-        print(f"Error: No metrics found for conversation '{conversation_id}'", file=sys.stderr)
+        print(
+            f"Error: No metrics found for conversation '{conversation_id}'",
+            file=sys.stderr,
+        )
         print("The conversation may not have any LLM activity yet.", file=sys.stderr)
         return 1
-    
+
     if output_json:
         output = {
             "conversation_id": conversation_id,
             "title": title,
             "api_version": version,
             "api_used": api_used,
-            "metrics": metrics
+            "metrics": metrics,
         }
         print(json.dumps(output, indent=2))
     else:
-        print(format_metrics(metrics, conversation_id, f"{version} via {api_used}", title))
-    
+        print(
+            format_metrics(metrics, conversation_id, f"{version} via {api_used}", title)
+        )
+
     return 0
 
 
@@ -218,47 +235,51 @@ Examples:
 
 Environment Variables:
     OH_API_KEY    API key for authentication
-        """
+        """,
     )
-    
+
     parser.add_argument(
-        "conversation_id",
-        help="The conversation ID to get metrics for"
+        "conversation_id", help="The conversation ID to get metrics for"
     )
-    
+
     parser.add_argument(
-        "--api-key", "-k",
+        "--api-key",
+        "-k",
         dest="api_key",
-        help="API key (defaults to OH_API_KEY environment variable)"
+        help="API key (defaults to OH_API_KEY environment variable)",
     )
-    
+
     parser.add_argument(
-        "--base-url", "-u",
+        "--base-url",
+        "-u",
         dest="base_url",
         default=DEFAULT_BASE_URL,
-        help=f"Base URL for the OpenHands API (default: {DEFAULT_BASE_URL})"
+        help=f"Base URL for the OpenHands API (default: {DEFAULT_BASE_URL})",
     )
-    
+
     parser.add_argument(
-        "--json", "-j",
+        "--json",
+        "-j",
         dest="output_json",
         action="store_true",
-        help="Output in JSON format"
+        help="Output in JSON format",
     )
-    
+
     args = parser.parse_args()
-    
+
     # Get API key from argument or environment
     api_key = args.api_key or os.environ.get("OH_API_KEY")
-    
+
     if not api_key:
         print("Error: No API key provided.", file=sys.stderr)
-        print("Use --api-key or set the OH_API_KEY environment variable.", file=sys.stderr)
+        print(
+            "Use --api-key or set the OH_API_KEY environment variable.", file=sys.stderr
+        )
         sys.exit(1)
-    
+
     # Normalize conversation ID (remove dashes if present)
     conversation_id = args.conversation_id.replace("-", "")
-    
+
     sys.exit(get_metrics(args.base_url, conversation_id, api_key, args.output_json))
 
 
