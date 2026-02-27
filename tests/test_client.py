@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
+
 
 # Add the conversation-metrics directory to the path
 PACKAGE_DIR = Path(__file__).parent.parent / "conversation-metrics"
@@ -72,7 +73,9 @@ class TestAPIClientFixtures:
 class TestAPIClientLogging:
     """Test APIClient logging functionality."""
 
-    def test_logging_creates_files(self, client_with_logging: APIClient, fixtures_dir: Path):
+    def test_logging_creates_files(
+        self, client_with_logging: APIClient, fixtures_dir: Path
+    ):
         """Test that logging creates request/response files."""
         # Configure fixture dir to avoid real API calls
         client_with_logging.fixture_dir = fixtures_dir
@@ -106,7 +109,9 @@ class TestAPIClientLogging:
         assert response_data["status_code"] == 200
         assert response_data["body"]["conversation_id"] == "v0test123"
 
-    def test_call_counter_increments(self, client_with_logging: APIClient, fixtures_dir: Path):
+    def test_call_counter_increments(
+        self, client_with_logging: APIClient, fixtures_dir: Path
+    ):
         """Test that the call counter increments properly."""
         client_with_logging.fixture_dir = fixtures_dir
 

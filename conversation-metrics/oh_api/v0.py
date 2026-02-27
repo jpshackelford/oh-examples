@@ -81,7 +81,9 @@ class V0Driver:
             Dict with 'events' list and 'has_more' boolean, or None if not found
         """
         params = f"limit={limit}&reverse={'true' if reverse else 'false'}"
-        result = self.client.get(f"/api/conversations/{conversation_id}/events?{params}")
+        result = self.client.get(
+            f"/api/conversations/{conversation_id}/events?{params}"
+        )
         if result is None or isinstance(result, list):
             return None
         return result

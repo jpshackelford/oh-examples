@@ -26,7 +26,7 @@ class MetricsSnapshot:
     raw: dict[str, Any] | None = None
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "MetricsSnapshot":
+    def from_dict(cls, data: dict[str, Any]) -> MetricsSnapshot:
         """Create MetricsSnapshot from API response dict."""
         token_usage = data.get("accumulated_token_usage", {})
 

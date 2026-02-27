@@ -5,7 +5,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
 
 # Add the conversation-metrics directory to the path
 PACKAGE_DIR = Path(__file__).parent.parent / "conversation-metrics"

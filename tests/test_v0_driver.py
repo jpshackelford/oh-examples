@@ -5,7 +5,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
 
 # Add the conversation-metrics directory to the path
 PACKAGE_DIR = Path(__file__).parent.parent / "conversation-metrics"
@@ -66,7 +65,9 @@ class TestV0FindMetrics:
         assert metrics["accumulated_cost"] == 0.05
         assert metrics["accumulated_token_usage"]["prompt_tokens"] == 5000
 
-    def test_find_metrics_in_events_without_metrics(self, client_with_fixtures: APIClient):
+    def test_find_metrics_in_events_without_metrics(
+        self, client_with_fixtures: APIClient
+    ):
         """Test finding metrics when none exist."""
         driver = V0Driver(client_with_fixtures)
         events_response = driver.get_events("trajectory_fallback")
