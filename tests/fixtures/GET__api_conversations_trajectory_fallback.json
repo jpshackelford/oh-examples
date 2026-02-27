@@ -1,0 +1,11 @@
+{
+  "status_code": 200,
+  "body": {
+    "conversation_id": "trajectory_fallback",
+    "title": "Trajectory Fallback Test",
+    "status": "completed",
+    "conversation_version": "V0"
+  },
+  "url": "https://app.all-hands.dev/api/conversations/trajectory_fallback",
+  "method": "GET"
+}

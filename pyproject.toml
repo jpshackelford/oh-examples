@@ -41,7 +41,8 @@ select = [
 extend-select = ["B006", "B008", "RUF012"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["ARG"]
+"tests/**/*.py" = ["ARG", "E402"]
+"conversation-metrics/oh-metrics" = ["E402"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
@@ -56,13 +57,14 @@ python_functions = ["test_*"]
 addopts = "-v --tb=short"
 
 [tool.pyright]
-include = ["conversation-metrics", "tests"]
+include = ["conversation-metrics/oh_api", "tests"]
+extraPaths = ["conversation-metrics"]
 pythonVersion = "3.10"
 typeCheckingMode = "standard"
 
 [tool.coverage.run]
-source = ["conversation-metrics"]
-omit = ["tests/*"]
+source = ["conversation-metrics/oh_api"]
+omit = ["tests/*", "conversation-metrics/oh-metrics"]
 
 [tool.coverage.report]
 exclude_lines = [

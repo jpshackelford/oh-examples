@@ -1,0 +1,6 @@
+{
+  "status_code": 404,
+  "body": null,
+  "url": "https://app.all-hands.dev/api/conversations/notfound",
+  "method": "GET"
+}

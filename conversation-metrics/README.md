@@ -10,6 +10,8 @@ Supports both **V0** and **V1** APIs, automatically selecting the appropriate on
 - **Graceful fallback** chain for metric retrieval
 - **Displays** cost (USD), token counts, cache stats, and context window
 - **JSON output** for programmatic use
+- **API call logging** for debugging and development
+- **Fixture-based testing** - high coverage via recorded API responses
 - **Zero dependencies** - uses only Python standard library
 
 ## Installation
@@ -91,7 +93,28 @@ API Version: V0 via V0 (events)
 | `--api-key KEY` | `-k` | API key (defaults to `OH_API_KEY` env var) |
 | `--base-url URL` | `-u` | Base URL (default: `https://app.all-hands.dev`) |
 | `--json` | `-j` | Output in JSON format |
+| `--log-api-calls` | `-l` | Log all API requests/responses to `.oh/api-logs/` |
 | `--help` | `-h` | Show help message |
+
+### Logging API Calls
+
+For debugging or development, you can log all API requests and responses:
+
+```bash
+./oh-metrics <conversation_id> --log-api-calls
+```
+
+This creates timestamped files in `.oh/api-logs/YYYYMMDD-HHMMSS/`:
+
+```
+.oh/api-logs/20260227-145230/
+├── 0001-request.json
+├── 0001-response.json
+├── 0002-request.json
+└── 0002-response.json
+```
+
+Each request/response pair is numbered sequentially. The Authorization header is redacted from logged requests.
 
 ## API Endpoints Used
 
@@ -130,6 +153,79 @@ The tool uses a fallback chain to find metrics:
 | `cache_write_tokens` | Tokens written to prompt cache |
 | `reasoning_tokens` | Tokens used for reasoning (if applicable) |
 | `context_window` | Model's context window size |
+
+## Architecture
+
+The library is organized into separate modules:
+
+```
+oh_api/
+├── __init__.py    # Public API exports
+├── client.py      # Base HTTP client with logging and fixture support
+├── v0.py          # V0 API driver
+├── v1.py          # V1 API driver
+└── metrics.py     # High-level metrics retrieval with fallback chain
+```
+
+### Using the Library Programmatically
+
+```python
+from oh_api import APIClient, get_conversation_metrics
+
+# Create a client
+client = APIClient(
+    base_url="https://app.all-hands.dev",
+    api_key="your-api-key",
+    log_api_calls=True,  # Optional: enable logging
+)
+
+# Get metrics
+metrics = get_conversation_metrics(client, "conversation-id")
+if metrics:
+    print(f"Cost: ${metrics.accumulated_cost:.6f}")
+    print(f"Tokens: {metrics.total_tokens:,}")
+```
+
+### Using the V0/V1 Drivers Directly
+
+```python
+from oh_api import APIClient
+from oh_api.v0 import V0Driver
+from oh_api.v1 import V1Driver
+
+client = APIClient(base_url="...", api_key="...")
+
+# V0 API
+v0 = V0Driver(client)
+conv = v0.get_conversation("conv-id")
+events = v0.get_events("conv-id", limit=50)
+
+# V1 API
+v1 = V1Driver(client)
+conv = v1.get_conversation("conv-id")
+if conv and conv.metrics:
+    print(f"Cost: ${conv.metrics.accumulated_cost}")
+```
+
+## Testing
+
+The test suite uses recorded API fixtures to achieve high coverage without making real API calls:
+
+```bash
+# Run tests
+uv run pytest tests/ -v
+
+# Run with coverage
+uv run pytest tests/ --cov --cov-report=term-missing
+```
+
+Current coverage: **89%** of library code.
+
+### Creating New Fixtures
+
+1. Run the CLI with `--log-api-calls` to capture real API responses
+2. Copy relevant response files to `tests/fixtures/`
+3. Rename following the pattern: `GET__api_path_q_param=value.json`
 
 ## License
 
