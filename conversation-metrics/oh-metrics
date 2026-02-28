@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+"""
+OpenHands Conversation Metrics CLI
+
+This is a standalone script for running without installation.
+For installed usage, use: oh-metrics (after pip install -e .)
+
+Retrieves cost and token usage for OpenHands conversations.
+Supports both V0 and V1 APIs, automatically selecting the appropriate one.
+"""
+
+from __future__ import annotations
+
+
+if __name__ == "__main__":
+    # When run as a script, use python -m to ensure proper imports
+    import subprocess
+    import sys
+
+    # Run as module to get proper package imports
+    result = subprocess.run(
+        [sys.executable, "-m", "oh_api.cli"] + sys.argv[1:],
+        cwd=__file__.rstrip("oh-metrics"),
+    )
+    sys.exit(result.returncode)

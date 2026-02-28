@@ -1,0 +1,29 @@
+{
+  "status_code": 200,
+  "body": {
+    "events": [
+      {
+        "id": 1,
+        "kind": "agent",
+        "llm_metrics": {
+          "accumulated_cost": 0.05,
+          "accumulated_token_usage": {
+            "prompt_tokens": 5000,
+            "completion_tokens": 500,
+            "cache_read_tokens": 1000,
+            "cache_write_tokens": 2000,
+            "reasoning_tokens": 0,
+            "context_window": 128000
+          }
+        }
+      },
+      {
+        "id": 0,
+        "kind": "user"
+      }
+    ],
+    "has_more": false
+  },
+  "url": "https://app.all-hands.dev/api/conversations/v0test123/events?limit=100&reverse=true",
+  "method": "GET"
+}

@@ -1,0 +1,28 @@
+{
+  "status_code": 200,
+  "body": [
+    {
+      "id": "v1test456",
+      "title": "V1 Test Conversation with Metrics",
+      "sandbox_id": "sandbox-123",
+      "sandbox_status": "running",
+      "execution_status": "completed",
+      "llm_model": "claude-sonnet-4-5-20250929",
+      "metrics": {
+        "accumulated_cost": 2.5,
+        "accumulated_token_usage": {
+          "prompt_tokens": 25000,
+          "completion_tokens": 5000,
+          "cache_read_tokens": 10000,
+          "cache_write_tokens": 5000,
+          "reasoning_tokens": 500,
+          "context_window": 200000
+        },
+        "model_name": "claude-sonnet-4-5-20250929"
+      },
+      "conversation_url": "https://app.all-hands.dev/conversations/v1test456"
+    }
+  ],
+  "url": "https://app.all-hands.dev/api/v1/app-conversations?ids=v1test456",
+  "method": "GET"
+}

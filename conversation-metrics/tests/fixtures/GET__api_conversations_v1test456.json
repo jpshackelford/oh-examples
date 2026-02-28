@@ -1,0 +1,11 @@
+{
+  "status_code": 200,
+  "body": {
+    "conversation_id": "v1test456",
+    "title": "V1 Test Conversation",
+    "status": "completed",
+    "conversation_version": "V1"
+  },
+  "url": "https://app.all-hands.dev/api/conversations/v1test456",
+  "method": "GET"
+}
