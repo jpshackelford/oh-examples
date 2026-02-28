@@ -153,7 +153,7 @@ class TestGetConversationMetrics:
     def test_v1_conversation_with_zero_metrics_in_app_conversations(
         self, client_with_fixtures: APIClient
     ):
-        """Test V1 conversation where app-conversations returns 0 but events have metrics.
+        """Test V1 conversation with zero metrics in app-conversations.
 
         This is a regression test for a bug where V1 conversations would show $0 cost
         because the /api/v1/app-conversations endpoint returns empty metrics, but the
