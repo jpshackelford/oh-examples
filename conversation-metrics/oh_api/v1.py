@@ -154,3 +154,68 @@ class V1Driver:
         if conv is None or conv.metrics is None:
             return None
         return conv.metrics.raw
+
+    def get_metrics_from_events(
+        self,
+        conversation_id: str,
+        limit: int = 100,
+    ) -> dict[str, Any] | None:
+        """Get metrics from ConversationStateUpdateEvent in events.
+
+        For V1 conversations, the /api/v1/app-conversations endpoint may return
+        zero metrics, but the actual metrics are stored in ConversationStateUpdateEvent
+        events under value.stats.usage_to_metrics.agent.
+
+        Args:
+            conversation_id: The conversation ID
+            limit: Maximum number of events to search
+
+        Returns:
+            Raw metrics dict or None if not found
+        """
+        events_response = self.search_events(conversation_id, limit=limit)
+        if events_response is None:
+            return None
+
+        return self.find_metrics_in_events(events_response)
+
+    def find_metrics_in_events(
+        self,
+        events_response: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Find metrics in ConversationStateUpdateEvent events.
+
+        Looks for the most recent ConversationStateUpdateEvent that contains
+        stats.usage_to_metrics.agent with accumulated metrics.
+
+        Args:
+            events_response: Response from search_events()
+
+        Returns:
+            The metrics dict if found, None otherwise
+        """
+        items = events_response.get("items", [])
+
+        # Iterate in reverse to find most recent metrics
+        for event in reversed(items):
+            if event.get("kind") != "ConversationStateUpdateEvent":
+                continue
+
+            value = event.get("value")
+            if not isinstance(value, dict):
+                continue
+
+            stats = value.get("stats")
+            if not isinstance(stats, dict):
+                continue
+
+            usage_to_metrics = stats.get("usage_to_metrics")
+            if not isinstance(usage_to_metrics, dict):
+                continue
+
+            # Get agent metrics (primary) or any other usage metrics
+            agent_metrics = usage_to_metrics.get("agent")
+            if isinstance(agent_metrics, dict) and "accumulated_cost" in agent_metrics:
+                return agent_metrics
+
+        return None

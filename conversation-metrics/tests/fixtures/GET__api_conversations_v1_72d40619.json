@@ -1,0 +1,22 @@
+{
+  "status_code": 200,
+  "body": {
+    "conversation_id": "72d40619b8534f9b9de6c3f17a71072d",
+    "title": "\ud83d\udcdd V0 API for Conversation Costs & Tokens",
+    "last_updated_at": "2026-02-27T20:05:58.862630Z",
+    "status": "STOPPED",
+    "runtime_status": null,
+    "selected_repository": null,
+    "selected_branch": null,
+    "git_provider": null,
+    "trigger": null,
+    "num_connections": 0,
+    "url": null,
+    "session_api_key": null,
+    "created_at": "2026-02-27T20:05:58.862628Z",
+    "pr_number": [],
+    "conversation_version": "V1",
+    "sub_conversation_ids": [],
+    "public": null
+  }
+}

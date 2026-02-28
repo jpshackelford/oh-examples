@@ -82,6 +82,31 @@ def _extract_metrics_from_dict(
     )
 
 
+def _has_nonzero_metrics(metrics: dict[str, Any]) -> bool:
+    """Check if metrics dict has any non-zero values.
+
+    Used to detect when /api/v1/app-conversations returns empty metrics
+    and we need to fall back to events endpoint.
+
+    Args:
+        metrics: Raw metrics dict from API
+
+    Returns:
+        True if accumulated_cost > 0 or any token count > 0
+    """
+    if metrics.get("accumulated_cost", 0.0) > 0:
+        return True
+
+    token_usage = metrics.get("accumulated_token_usage", {})
+    if not token_usage:
+        token_usage = metrics
+
+    return (
+        token_usage.get("prompt_tokens", 0) > 0
+        or token_usage.get("completion_tokens", 0) > 0
+    )
+
+
 def get_conversation_metrics(
     client: APIClient,
     conversation_id: str,
@@ -117,9 +142,21 @@ def get_conversation_metrics(
     # Step 2: For V1 conversations, try V1 API first
     if version == "V1":
         v1_metrics = v1.get_metrics_from_conversation(conversation_id)
-        if v1_metrics:
+        if v1_metrics and _has_nonzero_metrics(v1_metrics):
             metrics = v1_metrics
             api_used = "V1 (app-conversations)"
+            # Update title from V1 response if available
+            v1_conv = v1.get_conversation(conversation_id)
+            if v1_conv and v1_conv.title:
+                title = v1_conv.title
+
+    # Step 2b: For V1 conversations, if app-conversations returned zero metrics,
+    # try getting metrics from ConversationStateUpdateEvent in events
+    if version == "V1" and metrics is None:
+        v1_events_metrics = v1.get_metrics_from_events(conversation_id)
+        if v1_events_metrics:
+            metrics = v1_events_metrics
+            api_used = "V1 (events)"
             # Update title from V1 response if available
             v1_conv = v1.get_conversation(conversation_id)
             if v1_conv and v1_conv.title:

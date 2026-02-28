@@ -149,3 +149,30 @@ class TestGetConversationMetrics:
         result = get_conversation_metrics(client_with_fixtures, "notfound")
 
         assert result is None
+
+    def test_v1_conversation_with_zero_metrics_in_app_conversations(
+        self, client_with_fixtures: APIClient
+    ):
+        """Test V1 conversation where app-conversations returns 0 but events have metrics.
+
+        This is a regression test for a bug where V1 conversations would show $0 cost
+        because the /api/v1/app-conversations endpoint returns empty metrics, but the
+        actual metrics are stored in ConversationStateUpdateEvent events.
+
+        The metrics should be retrieved from:
+        /api/v1/conversation/{id}/events/search -> ConversationStateUpdateEvent
+        -> value.stats.usage_to_metrics.agent
+        """
+        result = get_conversation_metrics(client_with_fixtures, "v1_72d40619")
+
+        assert result is not None
+        assert result.conversation_id == "v1_72d40619"
+        assert result.api_version == "V1"
+        # The real cost should be ~$13.58, NOT $0
+        assert result.accumulated_cost > 13.0, (
+            f"Expected cost > $13, got ${result.accumulated_cost}. "
+            "Bug: V1 metrics from events not being retrieved."
+        )
+        assert result.prompt_tokens > 17000000  # ~17.5M tokens
+        assert result.completion_tokens > 60000  # ~64k tokens
+        assert result.cache_read_tokens > 17000000  # ~17M cached

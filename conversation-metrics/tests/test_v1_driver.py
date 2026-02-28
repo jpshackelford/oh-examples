@@ -93,3 +93,84 @@ class TestV1GetMetricsFromConversation:
         assert result is not None
         assert result["accumulated_cost"] == 2.5
         assert "accumulated_token_usage" in result
+
+
+class TestV1FindMetricsInEvents:
+    """Test V1Driver.find_metrics_in_events()."""
+
+    def test_find_metrics_in_conversation_state_update_event(
+        self, client_with_fixtures: APIClient
+    ):
+        """Test finding metrics in ConversationStateUpdateEvent."""
+        driver = V1Driver(client_with_fixtures)
+
+        # Simulate events response with ConversationStateUpdateEvent
+        events_response = {
+            "items": [
+                {
+                    "kind": "ActionEvent",
+                    "id": "action-1",
+                },
+                {
+                    "kind": "ConversationStateUpdateEvent",
+                    "id": "state-1",
+                    "value": {
+                        "stats": {
+                            "usage_to_metrics": {
+                                "agent": {
+                                    "accumulated_cost": 5.25,
+                                    "accumulated_token_usage": {
+                                        "prompt_tokens": 50000,
+                                        "completion_tokens": 2000,
+                                        "cache_read_tokens": 40000,
+                                        "cache_write_tokens": 10000,
+                                        "reasoning_tokens": 100,
+                                        "context_window": 200000,
+                                    },
+                                }
+                            }
+                        }
+                    },
+                },
+            ],
+            "next_page_id": None,
+        }
+
+        result = driver.find_metrics_in_events(events_response)
+
+        assert result is not None
+        assert result["accumulated_cost"] == 5.25
+        assert result["accumulated_token_usage"]["prompt_tokens"] == 50000
+        assert result["accumulated_token_usage"]["cache_read_tokens"] == 40000
+
+    def test_find_metrics_returns_none_when_no_stats(
+        self, client_with_fixtures: APIClient
+    ):
+        """Test that find_metrics_in_events returns None when no stats present."""
+        driver = V1Driver(client_with_fixtures)
+
+        events_response = {
+            "items": [
+                {"kind": "ActionEvent", "id": "action-1"},
+                {
+                    "kind": "ConversationStateUpdateEvent",
+                    "id": "state-1",
+                    "value": {"some_other_key": "value"},
+                },
+            ],
+            "next_page_id": None,
+        }
+
+        result = driver.find_metrics_in_events(events_response)
+        assert result is None
+
+    def test_find_metrics_returns_none_for_empty_events(
+        self, client_with_fixtures: APIClient
+    ):
+        """Test that find_metrics_in_events returns None for empty events."""
+        driver = V1Driver(client_with_fixtures)
+
+        events_response = {"items": [], "next_page_id": None}
+
+        result = driver.find_metrics_in_events(events_response)
+        assert result is None
