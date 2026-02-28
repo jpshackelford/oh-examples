@@ -164,7 +164,7 @@ Each request/response pair is numbered sequentially. The Authorization header is
 The tool uses a fallback chain to find metrics:
 
 1. **Check conversation version** via `/api/conversations/{id}`
-2. **For V1 conversations**: 
+2. **For V1 conversations**:
    - First try `/api/v1/app-conversations?ids={id}` which includes a `metrics` object
    - If metrics are all zeros, fall back to `/api/v1/conversation/{id}/events/search` and extract metrics from `ConversationStateUpdateEvent` at `value.stats.usage_to_metrics.agent`
 3. **For V0 conversations** (or if V1 fails): Use `/api/conversations/{id}/events` and find the latest event with `llm_metrics`
