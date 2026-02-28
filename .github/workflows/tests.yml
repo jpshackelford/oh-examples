@@ -38,8 +38,7 @@ jobs:
                     --cov \
                     --cov-report=term-missing \
                     --cov-report=xml:coverage.xml \
-                    --cov-fail-under=0 \
-                    tests/
+                    --cov-fail-under=0
 
             - name: Upload coverage report
               if: github.event_name == 'pull_request'
