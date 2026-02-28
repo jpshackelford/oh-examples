@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
+
 # Add the parent directory (conversation-metrics) to the path
 PACKAGE_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(PACKAGE_DIR))
@@ -193,7 +194,7 @@ class TestMain:
         with patch.dict("os.environ", {}, clear=True):
             with patch("sys.argv", ["oh-metrics", "test123"]):
                 with pytest.raises(SystemExit) as exc_info:
-                    with patch("sys.stderr", StringIO()) as stderr:
+                    with patch("sys.stderr", StringIO()):
                         main()
 
                 assert exc_info.value.code == 1
