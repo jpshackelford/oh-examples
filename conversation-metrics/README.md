@@ -38,7 +38,7 @@ export OH_API_KEY="your-api-key"
 ./oh-metrics <conversation_id>
 ```
 
-**Example output:**
+**Example output (V0 conversation):**
 
 ```
 ────────────────────────────────────────────────────────────
@@ -56,6 +56,31 @@ API Version: V0 via V0 (events)
 🗄️  Cache:
    Cache read:        0
    Cache write:       12,740
+
+📐 Context window:    200,000
+────────────────────────────────────────────────────────────
+```
+
+**Example output (V1 conversation):**
+
+```
+────────────────────────────────────────────────────────────
+Conversation: 72d40619b8534f9b9de6c3f17a71072d
+Title: 📝 V0 API for Conversation Costs & Tokens
+API Version: V1 via V1 (events)
+────────────────────────────────────────────────────────────
+💰 Total Cost: $13.576675 USD
+
+📊 Token Usage:
+   Prompt tokens:     17,577,146
+   Completion tokens: 63,985
+   Total tokens:      17,641,131
+
+🗄️  Cache:
+   Cache read:        17,022,477
+   Cache write:       553,973
+
+🧠 Reasoning tokens:  1,169
 
 📐 Context window:    200,000
 ────────────────────────────────────────────────────────────
@@ -124,6 +149,7 @@ Each request/response pair is numbered sequentially. The Authorization header is
 |----------|---------|
 | `GET /api/conversations/{id}` | Get conversation info (to determine version) |
 | `GET /api/v1/app-conversations?ids={id}` | Get conversation with metrics |
+| `GET /api/v1/conversation/{id}/events/search` | Fallback: find metrics in `ConversationStateUpdateEvent` |
 
 ### For V0 Conversations
 
@@ -138,9 +164,13 @@ Each request/response pair is numbered sequentially. The Authorization header is
 The tool uses a fallback chain to find metrics:
 
 1. **Check conversation version** via `/api/conversations/{id}`
-2. **For V1 conversations**: Use `/api/v1/app-conversations?ids={id}` which includes a `metrics` object directly
+2. **For V1 conversations**: 
+   - First try `/api/v1/app-conversations?ids={id}` which includes a `metrics` object
+   - If metrics are all zeros, fall back to `/api/v1/conversation/{id}/events/search` and extract metrics from `ConversationStateUpdateEvent` at `value.stats.usage_to_metrics.agent`
 3. **For V0 conversations** (or if V1 fails): Use `/api/conversations/{id}/events` and find the latest event with `llm_metrics`
 4. **Last resort**: Use `/api/conversations/{id}/trajectory` and scan for `llm_metrics`
+
+> **Note:** Some V1 conversations have metrics stored only in events (not in the app-conversations response). The fallback chain ensures these are still retrieved correctly.
 
 ## Metrics Explained
 
