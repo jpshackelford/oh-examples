@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+
 # Add the parent directory (conversation-metrics) to the path
 PACKAGE_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(PACKAGE_DIR))
