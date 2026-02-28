@@ -1,0 +1,189 @@
+"""
+OpenHands Conversation Metrics CLI
+
+Retrieves cost and token usage for OpenHands conversations.
+Supports both V0 and V1 APIs, automatically selecting the appropriate one.
+
+Usage:
+    oh-metrics <conversation_id> [--api-key KEY] [--base-url URL]
+    oh-metrics --help
+
+Environment:
+    OH_API_KEY: API key for authentication (can also use --api-key)
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+from oh_api import APIClient, get_conversation_metrics
+from oh_api.metrics import ConversationMetrics
+
+
+DEFAULT_BASE_URL = "https://app.all-hands.dev"
+
+
+def format_metrics(metrics: ConversationMetrics) -> str:
+    """Format metrics for display."""
+    lines = []
+    lines.append(f"{'─' * 60}")
+    lines.append(f"Conversation: {metrics.conversation_id}")
+    if metrics.title:
+        lines.append(f"Title: {metrics.title}")
+    lines.append(f"API Version: {metrics.api_version} via {metrics.api_used}")
+    lines.append(f"{'─' * 60}")
+
+    lines.append(f"💰 Total Cost: ${metrics.accumulated_cost:.6f} USD")
+
+    lines.append("")
+    lines.append("📊 Token Usage:")
+    lines.append(f"   Prompt tokens:     {metrics.prompt_tokens:,}")
+    lines.append(f"   Completion tokens: {metrics.completion_tokens:,}")
+    lines.append(f"   Total tokens:      {metrics.total_tokens:,}")
+
+    if metrics.cache_read_tokens or metrics.cache_write_tokens:
+        lines.append("")
+        lines.append("🗄️  Cache:")
+        lines.append(f"   Cache read:        {metrics.cache_read_tokens:,}")
+        lines.append(f"   Cache write:       {metrics.cache_write_tokens:,}")
+
+    if metrics.reasoning_tokens:
+        lines.append("")
+        lines.append(f"🧠 Reasoning tokens:  {metrics.reasoning_tokens:,}")
+
+    if metrics.context_window:
+        lines.append("")
+        lines.append(f"📐 Context window:    {metrics.context_window:,}")
+
+    lines.append(f"{'─' * 60}")
+
+    return "\n".join(lines)
+
+
+def run_metrics(
+    base_url: str,
+    conversation_id: str,
+    api_key: str,
+    output_json: bool = False,
+    log_api_calls: bool = False,
+) -> int:
+    """Main function to get metrics for a conversation."""
+    # Create client with optional logging
+    log_dir = Path(".oh/api-logs") if log_api_calls else None
+
+    client = APIClient(
+        base_url=base_url,
+        api_key=api_key,
+        log_api_calls=log_api_calls,
+        log_dir=log_dir,
+    )
+
+    # Get metrics using the unified function
+    metrics = get_conversation_metrics(client, conversation_id)
+
+    if metrics is None:
+        print(
+            f"Error: Conversation '{conversation_id}' not found or has no metrics",
+            file=sys.stderr,
+        )
+        print(
+            "The conversation may not exist or may not have any LLM activity yet.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if log_api_calls and client.log_dir:
+        print(f"API logs saved to: {client.log_dir}", file=sys.stderr)
+
+    if output_json:
+        print(json.dumps(metrics.to_dict(), indent=2))
+    else:
+        print(format_metrics(metrics))
+
+    return 0
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Get cost and token metrics for an OpenHands conversation",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    oh-metrics abc123def456
+    oh-metrics abc123def456 --json
+    oh-metrics abc123def456 --api-key YOUR_KEY
+    oh-metrics abc123def456 --log-api-calls
+    OH_API_KEY=your_key oh-metrics abc123def456
+
+Environment Variables:
+    OH_API_KEY    API key for authentication
+        """,
+    )
+
+    parser.add_argument(
+        "conversation_id", help="The conversation ID to get metrics for"
+    )
+
+    parser.add_argument(
+        "--api-key",
+        "-k",
+        dest="api_key",
+        help="API key (defaults to OH_API_KEY environment variable)",
+    )
+
+    parser.add_argument(
+        "--base-url",
+        "-u",
+        dest="base_url",
+        default=DEFAULT_BASE_URL,
+        help=f"Base URL for the OpenHands API (default: {DEFAULT_BASE_URL})",
+    )
+
+    parser.add_argument(
+        "--json",
+        "-j",
+        dest="output_json",
+        action="store_true",
+        help="Output in JSON format",
+    )
+
+    parser.add_argument(
+        "--log-api-calls",
+        "-l",
+        dest="log_api_calls",
+        action="store_true",
+        help="Log all API requests/responses to .oh/api-logs/",
+    )
+
+    args = parser.parse_args()
+
+    # Get API key from argument or environment
+    api_key = args.api_key or os.environ.get("OH_API_KEY")
+
+    if not api_key:
+        print("Error: No API key provided.", file=sys.stderr)
+        print(
+            "Use --api-key or set the OH_API_KEY environment variable.", file=sys.stderr
+        )
+        sys.exit(1)
+
+    # Normalize conversation ID (remove dashes if present)
+    conversation_id = args.conversation_id.replace("-", "")
+
+    sys.exit(
+        run_metrics(
+            args.base_url,
+            conversation_id,
+            api_key,
+            args.output_json,
+            args.log_api_calls,
+        )
+    )
+
+
+if __name__ == "__main__":
+    main()

@@ -22,6 +22,12 @@ dev = [
     "pycodestyle>=2.12.0",
 ]
 
+[tool.uv.sources]
+oh-conversation-metrics = { workspace = true }
+
+[tool.uv.workspace]
+members = ["conversation-metrics"]
+
 [tool.ruff]
 target-version = "py310"
 line-length = 88
@@ -42,7 +48,6 @@ extend-select = ["B006", "B008", "RUF012"]
 
 [tool.ruff.lint.per-file-ignores]
 "conversation-metrics/tests/**/*.py" = ["ARG", "E402"]
-"conversation-metrics/oh-metrics" = ["E402"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
