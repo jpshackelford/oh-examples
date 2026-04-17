@@ -43,10 +43,14 @@ a session-specific credential.
 
 3. **Secrets Endpoint**: `POST /api/conversations/{id}/secrets`
    - Body: `{"secrets": {"KEY": "value"}}`
-   - Secrets become environment variables (`$KEY`)
+   - Secrets become environment variables (`$KEY`) for **bash commands**
 
-4. **MCP Config Variable Expansion**: MCP server configurations support `${VARIABLE}`
-   syntax that expands using injected secrets.
+4. **MCP Config Variable Expansion - LIMITATION**: 
+   - MCP configs support `${VARIABLE}` syntax
+   - BUT: This expands from `os.environ`, NOT from injected secrets
+   - Injected secrets go to `SecretRegistry` (used for bash commands)
+   - Therefore: Per-conversation secrets do NOT work for MCP config expansion
+   - **Workaround**: Use user-level secrets (defined in OpenHands settings) for MCP authentication
 
 ## Files
 
