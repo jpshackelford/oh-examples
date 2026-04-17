@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "token-validator": {
+      "url": "https://work-1-xalhxaimdbsjruoa.prod-runtime.all-hands.dev/mcp",
+      "transport": "sse",
+      "headers": {
+        "Authorization": "Bearer ${MCP_SECRET_TOKEN}"
+      }
+    }
+  }
+}

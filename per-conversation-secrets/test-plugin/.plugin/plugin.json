@@ -1,0 +1,10 @@
+{
+  "name": "secret-token-validator",
+  "version": "1.0.0",
+  "description": "Plugin that connects to an MCP server using a per-conversation secret token",
+  "author": {
+    "name": "OpenHands",
+    "email": "openhands@all-hands.dev"
+  },
+  "license": "MIT"
+}

@@ -7,6 +7,7 @@ A collection of example code for working with the OpenHands API.
 | Example | Description |
 |---------|-------------|
 | [conversation-metrics](./conversation-metrics/) | CLI tool to retrieve cost and token usage for conversations |
+| [per-conversation-secrets](./per-conversation-secrets/) | Inject per-conversation secrets via REST API |
 
 ## API Versions
 
