@@ -61,10 +61,13 @@ class MCPHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _send_sse_event(self, event_type: str, data: dict) -> str:
+    def _send_sse_event(self, event_type: str, data: Any) -> str:
         """Format an SSE event."""
-        json_data = json.dumps(data)
-        return f"event: {event_type}\ndata: {json_data}\n\n"
+        if isinstance(data, dict):
+            data_str = json.dumps(data)
+        else:
+            data_str = str(data)
+        return f"event: {event_type}\ndata: {data_str}\n\n"
 
     def do_OPTIONS(self) -> None:
         """Handle CORS preflight."""
@@ -110,9 +113,8 @@ class MCPHandler(BaseHTTPRequestHandler):
             self.end_headers()
             
             # Send endpoint event with session ID for POST messages
-            endpoint_event = self._send_sse_event('endpoint', {
-                'uri': f'/mcp?session={session_id}'
-            })
+            # The MCP spec says this should be just the URI string
+            endpoint_event = self._send_sse_event('endpoint', f'/mcp?session={session_id}')
             self.wfile.write(endpoint_event.encode())
             self.wfile.flush()
             
