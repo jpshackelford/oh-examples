@@ -9,7 +9,80 @@ OpenHands allows users to define secrets at the user level, but sometimes you ne
 secrets that are specific to a single conversation - for example, a temporary API token or
 a session-specific credential.
 
-**This has been proven to work!** The test script successfully:
+## Two Approaches
+
+There are now **two ways** to inject per-conversation secrets:
+
+### 1. At Conversation Start (NEW - Recommended)
+
+Pass secrets directly in the `POST /v1/app-conversations` request body:
+
+```python
+requests.post(
+    f'{api_url}/v1/app-conversations',
+    headers={'Authorization': f'Bearer {api_key}'},
+    json={
+        'sandbox_id': sandbox_id,
+        'initial_message': {...},
+        'secrets': {                    # <-- New field!
+            'GITHUB_TOKEN': 'ghp_...',
+            'MY_API_KEY': 'sk-...',
+        }
+    }
+)
+```
+
+**Advantages:**
+- Single request - simpler API
+- Secrets available immediately when agent starts
+- No race condition - guaranteed to be set before agent runs
+- Secrets are merged with vault secrets (API secrets take precedence)
+
+**Requirements:**
+- OpenHands PR [#14009](https://github.com/OpenHands/OpenHands/pull/14009)
+- SDK PR [#2873](https://github.com/OpenHands/software-agent-sdk/pull/2873)
+
+**Test script:** `test_secrets_at_start.py`
+
+### 2. After Conversation Start (Original)
+
+Inject secrets via the Agent Server's `/secrets` endpoint after the conversation starts:
+
+```python
+# After starting conversation...
+requests.post(
+    f'{agent_server_url}/api/conversations/{conv_id}/secrets',
+    headers={'X-Session-API-Key': session_api_key},
+    json={'secrets': {'MY_SECRET': 'value'}}
+)
+```
+
+**Use when:**
+- Need to add secrets mid-conversation
+- Running on older OpenHands versions
+
+**Test script:** `test_secrets.py`
+
+## Quick Comparison
+
+| Feature | At Start (New) | After Start (Original) |
+|---------|----------------|------------------------|
+| API Endpoint | `POST /v1/app-conversations` | `POST {agent}/api/conversations/{id}/secrets` |
+| Auth Header | `Authorization: Bearer {api_key}` | `X-Session-API-Key: {session_key}` |
+| Timing | Before agent runs | After conversation created |
+| Simplicity | Single request | Multiple requests |
+| Mid-conversation | No | Yes |
+
+## Proven to Work!
+
+Both approaches have been tested and verified:
+
+**At-start approach (`test_secrets_at_start.py`):**
+1. Starts a sandbox via the App Server API
+2. Starts a conversation with secrets in the request body
+3. Verifies the secrets are available as environment variables
+
+**After-start approach (`test_secrets.py`):**
 1. Starts a sandbox via the App Server API
 2. Starts a conversation with that sandbox
 3. Injects secrets via the Agent Server API
@@ -54,17 +127,52 @@ a session-specific credential.
 
 ## Files
 
-- `test_secrets.py` - End-to-end test proving secrets work as environment variables
+- `test_secrets_at_start.py` - **NEW**: Test secrets passed at conversation start (recommended)
+- `test_secrets.py` - Test secrets injected after conversation start (original approach)
 - `mcp_server.py` - Simple MCP server for testing token validation
 - `test_mcp_secrets.py` - (Experimental) Test for MCP config variable expansion
 
 ## Usage
 
+### Test secrets at conversation start (NEW - Recommended)
+
 ```bash
 # Set your API key
 export OH_API_KEY="sk-oh-..."
 
-# Run the basic test (proven to work)
+# Optional: Use a staging or feature deployment for testing
+# export OH_API_URL="https://ohpr-14009-30.staging.all-hands.dev/api"
+
+# Run the test
+python test_secrets_at_start.py
+
+# Expected output:
+# ======================================================================
+#  PER-CONVERSATION SECRETS AT START TIME TEST
+#  Testing: secrets field in AppConversationStartRequest
+# ======================================================================
+#
+# [HH:MM:SS] Using API URL: https://app.all-hands.dev/api
+# [HH:MM:SS] Starting sandbox...
+# [HH:MM:SS]   Sandbox ID: ...
+# [HH:MM:SS] Waiting for sandbox to be ready...
+# [HH:MM:SS]   Agent Server: https://xxxx.prod-runtime.all-hands.dev
+# [HH:MM:SS] Starting conversation with secrets field...
+# [HH:MM:SS]   Secret: TEST_API_SECRET='FUZZY_WUZZY_WAS_A_BE...'
+# [HH:MM:SS]   Response status: 200
+# ...
+# ======================================================================
+#  ✅ SUCCESS! Secrets passed at conversation start time work!
+# ======================================================================
+```
+
+### Test secrets after conversation start (Original)
+
+```bash
+# Set your API key
+export OH_API_KEY="sk-oh-..."
+
+# Run the test
 python test_secrets.py
 
 # Expected output:
