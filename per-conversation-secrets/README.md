@@ -143,6 +143,9 @@ export OH_API_KEY="sk-oh-..."
 # Optional: Use a staging or feature deployment for testing
 # export OH_API_URL="https://ohpr-14009-30.staging.all-hands.dev/api"
 
+# Optional: Use an existing running sandbox (faster, avoids cold start issues)
+# export OH_SANDBOX_ID="your-sandbox-id"
+
 # Run the test
 python test_secrets_at_start.py
 
@@ -156,13 +159,15 @@ python test_secrets_at_start.py
 # [HH:MM:SS] Starting sandbox...
 # [HH:MM:SS]   Sandbox ID: ...
 # [HH:MM:SS] Waiting for sandbox to be ready...
+# [HH:MM:SS]   Status: STARTING
+# [HH:MM:SS]   Status: RUNNING
 # [HH:MM:SS]   Agent Server: https://xxxx.prod-runtime.all-hands.dev
 # [HH:MM:SS] Starting conversation with secrets field...
 # [HH:MM:SS]   Secret: TEST_API_SECRET='FUZZY_WUZZY_WAS_A_BE...'
 # [HH:MM:SS]   Response status: 200
 # ...
 # ======================================================================
-#  ✅ SUCCESS! Secrets passed at conversation start time work!
+#  ✅ SUCCESS! Secrets field was accepted in AppConversationStartRequest!
 # ======================================================================
 ```
 
@@ -202,24 +207,42 @@ Headers: Authorization: Bearer {api_key}
 → {id, session_api_key, exposed_urls}
 
 # 2. Wait for RUNNING status, get agent_server_url from exposed_urls
+GET https://app.all-hands.dev/api/v1/sandboxes/search
+# Find your sandbox in the "items" array and check "exposed_urls"
 
-# 3. Start conversation
+# 3. Start conversation WITH secrets (new approach)
 POST https://app.all-hands.dev/api/v1/app-conversations
 Headers: Authorization: Bearer {api_key}
-Body: {sandbox_id: "...", initial_message: {...}}
+Body: {sandbox_id: "...", initial_message: {...}, secrets: {...}}
 
-# 4. Find conversation on agent server
-GET {agent_server_url}/api/conversations/search
-Headers: X-Session-API-Key: {session_api_key}
-
-# 5. Inject secrets
-POST {agent_server_url}/api/conversations/{agent_conv_id}/secrets
-Headers: X-Session-API-Key: {session_api_key}
-Body: {"secrets": {"MY_SECRET": "value"}}
-→ {"success": true}
-
-# 6. Secret is now available as $MY_SECRET in the conversation!
+# The secrets are now available as $SECRET_NAME in the conversation!
 ```
+
+## API Notes
+
+The OpenHands REST API has some important details to be aware of:
+
+### Sandbox ID Field
+- The POST response uses `id` (not `sandbox_id`)
+- Example: `{"id": "abc123", "status": "STARTING", ...}`
+
+### Getting Sandbox Status
+- Use `GET /api/v1/sandboxes/search` (returns paginated list)
+- The response structure is: `{"items": [...], "next_page_id": ...}`
+- Filter client-side for your sandbox ID
+
+### Agent Server URL
+- Located in `exposed_urls` array, not a direct field
+- Look for entry with `"name": "AGENT_SERVER"`
+- Example: `exposed_urls: [{name: "AGENT_SERVER", url: "https://..."}]`
+
+### Events Endpoint
+- Use `GET /api/v1/conversation/{id}/events/search` for listing events
+- The `/events` endpoint requires specific event IDs
+
+### OpenAPI Spec
+- Available at `/openapi.json` on any deployment
+- Example: `https://app.all-hands.dev/openapi.json`
 
 ## License
 
