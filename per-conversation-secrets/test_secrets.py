@@ -37,6 +37,7 @@ This test exercises TWO separate OpenHands APIs:
 import os
 import sys
 import time
+from typing import Any
 
 import requests
 
@@ -49,6 +50,13 @@ API_URL = os.environ.get("OH_API_URL", "https://app.all-hands.dev/api")
 SECRET_NAME = "TEST_SECRET_TOKEN"
 SECRET_VALUE = "FUZZY_WUZZY_WAS_A_BEAR_FUZZY_WUZZY_HAD_NO_HAIR"
 
+# Timeout constants (in seconds)
+SANDBOX_READY_TIMEOUT = 180  # Max time to wait for sandbox to be RUNNING
+SANDBOX_POLL_INTERVAL = 2  # How often to check sandbox status
+CONV_APPEAR_TIMEOUT = 30  # Max time for conversation to appear
+INITIAL_MSG_WAIT = 15  # Wait for agent to process initial message
+AGENT_EXEC_WAIT = 45  # Wait for agent to execute command
+
 
 def log(msg: str) -> None:
     """Print with timestamp."""
@@ -60,7 +68,9 @@ def log(msg: str) -> None:
 # =============================================================================
 
 
-def get_sandbox_via_search(headers: dict, sandbox_id: str) -> dict | None:
+def get_sandbox_via_search(
+    headers: dict[str, str], sandbox_id: str
+) -> dict[str, Any] | None:
     """
     Get sandbox by ID using GET /v1/sandboxes/search.
 
@@ -75,7 +85,7 @@ def get_sandbox_via_search(headers: dict, sandbox_id: str) -> dict | None:
     return None
 
 
-def create_sandbox(headers: dict) -> dict:
+def create_sandbox(headers: dict[str, str]) -> dict[str, Any]:
     """
     Create a new sandbox via POST /v1/sandboxes.
 
@@ -88,16 +98,20 @@ def create_sandbox(headers: dict) -> dict:
     return resp.json()
 
 
-def delete_sandbox(headers: dict, sandbox_id: str) -> None:
+def delete_sandbox(headers: dict[str, str], sandbox_id: str) -> None:
     """
-    Delete sandbox via DELETE /v1/sandboxes/{id}?sandbox_id=<id>.
+    Delete sandbox via DELETE /v1/sandboxes/<id>?sandbox_id=<id>.
 
-    Per OpenAPI: Path is /v1/sandboxes/{id} with sandbox_id as query parameter.
-    Note: The {id} in path is literal, sandbox_id is passed as query param.
+    API QUIRK: The OpenAPI spec shows path '/v1/sandboxes/{id}' but does not
+    define {id} as a path parameter. Instead, 'sandbox_id' is a required query
+    parameter. Testing confirms the path segment is IGNORED - only the query
+    param matters. We use the ID in both places for clarity and future-proofing.
+
+    See: https://github.com/OpenHands/OpenHands/issues/XXXX (API inconsistency)
     """
     try:
         requests.delete(
-            f"{API_URL}/v1/sandboxes/{{id}}",
+            f"{API_URL}/v1/sandboxes/{sandbox_id}",
             headers=headers,
             params={"sandbox_id": sandbox_id},
             timeout=30,
@@ -106,7 +120,9 @@ def delete_sandbox(headers: dict, sandbox_id: str) -> None:
         pass
 
 
-def start_conversation(headers: dict, sandbox_id: str, initial_message: str) -> dict:
+def start_conversation(
+    headers: dict[str, str], sandbox_id: str, initial_message: str
+) -> dict[str, Any]:
     """
     Start conversation via POST /v1/app-conversations.
 
@@ -131,7 +147,9 @@ def start_conversation(headers: dict, sandbox_id: str, initial_message: str) -> 
 # =============================================================================
 
 
-def get_agent_server_info(sandbox_data: dict) -> tuple[str, str] | None:
+def get_agent_server_info(
+    sandbox_data: dict[str, Any],
+) -> tuple[str, str] | None:
     """
     Extract agent server URL and session key from sandbox data.
 
@@ -140,15 +158,27 @@ def get_agent_server_info(sandbox_data: dict) -> tuple[str, str] | None:
     """
     session_key = sandbox_data.get("session_api_key")
     if not session_key:
+        log("Error: Missing session_api_key in sandbox data")
         return None
 
-    for url_info in sandbox_data.get("exposed_urls") or []:
+    exposed_urls = sandbox_data.get("exposed_urls")
+    if not exposed_urls:
+        log("Error: Missing or empty exposed_urls in sandbox data")
+        return None
+
+    for url_info in exposed_urls:
         if url_info.get("name") == "AGENT_SERVER":
-            return url_info.get("url"), session_key
+            agent_url = url_info.get("url")
+            if not agent_url:
+                log("Error: AGENT_SERVER found but url is empty")
+                return None
+            return agent_url, session_key
+
+    log("Error: AGENT_SERVER not found in exposed_urls")
     return None
 
 
-def get_agent_conversations(agent_url: str, session_key: str) -> list[dict]:
+def get_agent_conversations(agent_url: str, session_key: str) -> list[dict[str, Any]]:
     """
     List conversations via GET /api/conversations/search.
 
@@ -164,7 +194,7 @@ def get_agent_conversations(agent_url: str, session_key: str) -> list[dict]:
 
 
 def inject_secrets(
-    agent_url: str, session_key: str, conv_id: str, secrets: dict
+    agent_url: str, session_key: str, conv_id: str, secrets: dict[str, str]
 ) -> bool:
     """
     Inject secrets via POST /api/conversations/{id}/secrets.
@@ -211,7 +241,7 @@ def send_user_message(
 
 def get_conversation_events(
     agent_url: str, session_key: str, conv_id: str
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """
     Get events via GET /api/conversations/{id}/events/search.
 
@@ -230,7 +260,7 @@ def get_conversation_events(
     return []
 
 
-def check_events_for_secret(events: list[dict], expected_value: str) -> bool:
+def check_events_for_secret(events: list[dict[str, Any]], expected_value: str) -> bool:
     """Check if the secret value appears in any event output."""
     expected_lower = expected_value.lower()
     for event in events:
@@ -282,17 +312,19 @@ def main() -> int:
         log(f"  Sandbox ID: {sandbox_id}")
 
         # Wait for sandbox to be ready
-        log("Waiting for sandbox to be ready...")
-        for _ in range(90):
+        log(f"Waiting for sandbox to be ready (max {SANDBOX_READY_TIMEOUT}s)...")
+        max_attempts = SANDBOX_READY_TIMEOUT // SANDBOX_POLL_INTERVAL
+        for attempt in range(max_attempts):
             sandbox_data = get_sandbox_via_search(app_headers, sandbox_id)
             if sandbox_data:
                 status = sandbox_data.get("status", "")
                 if status == "RUNNING":
                     break
                 log(f"  Status: {status}")
-            time.sleep(2)
+            time.sleep(SANDBOX_POLL_INTERVAL)
         else:
-            log("Error: Sandbox did not become ready in time")
+            elapsed = max_attempts * SANDBOX_POLL_INTERVAL
+            log(f"Error: Sandbox did not become ready in {elapsed}s")
             return 1
 
         # Get agent server info
@@ -314,9 +346,9 @@ def main() -> int:
         start_conversation(app_headers, sandbox_id, "Say 'Ready' and nothing else.")
 
         # Find the new conversation on agent server
-        log("Finding conversation on agent server...")
+        log(f"Finding conversation on agent server (max {CONV_APPEAR_TIMEOUT}s)...")
         agent_conv_id = None
-        for _ in range(30):
+        for _ in range(CONV_APPEAR_TIMEOUT):
             after_convs = {
                 c["id"] for c in get_agent_conversations(agent_url, session_key)
             }
@@ -327,7 +359,7 @@ def main() -> int:
             time.sleep(1)
 
         if not agent_conv_id:
-            log("Error: Conversation did not appear on agent server")
+            log(f"Error: Conversation did not appear in {CONV_APPEAR_TIMEOUT}s")
             return 1
         log(f"  Agent conversation ID: {agent_conv_id}")
 
@@ -340,8 +372,8 @@ def main() -> int:
         log("  Secret injected successfully")
 
         # Step 4: Wait for initial message to complete
-        log("Waiting for initial message to complete...")
-        time.sleep(15)
+        log(f"Waiting for initial message to complete ({INITIAL_MSG_WAIT}s)...")
+        time.sleep(INITIAL_MSG_WAIT)
 
         # Step 5: Send message that uses the secret
         log(f"Sending command to use secret: echo ${SECRET_NAME} | tr ...")
@@ -353,8 +385,8 @@ def main() -> int:
             return 1
 
         # Step 6: Wait for agent to execute
-        log("Waiting for agent to execute command...")
-        time.sleep(45)
+        log(f"Waiting for agent to execute command ({AGENT_EXEC_WAIT}s)...")
+        time.sleep(AGENT_EXEC_WAIT)
 
         # Step 7: Check events for the secret value
         log("Checking events for transformed secret...")
