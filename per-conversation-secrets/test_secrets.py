@@ -23,7 +23,7 @@ from typing import Any
 
 # Configuration
 API_KEY = os.environ.get('OH_API_KEY', '')
-APP_URL = "https://app.all-hands.dev/api"
+APP_URL = os.environ.get("OH_API_URL", "https://app.all-hands.dev/api")
 
 # Test secret
 SECRET_NAME = "TEST_SECRET_TOKEN"
