@@ -138,7 +138,7 @@ Both approaches have been tested and verified:
    - Body: `{"secrets": {"KEY": "value"}}`
    - Secrets become environment variables (`$KEY`) for **bash commands**
 
-4. **MCP Config Variable Expansion - LIMITATION**: 
+4. **MCP Config Variable Expansion - LIMITATION**:
    - MCP configs support `${VARIABLE}` syntax
    - BUT: This expands from `os.environ`, NOT from injected secrets
    - Injected secrets go to `SecretRegistry` (used for bash commands)
