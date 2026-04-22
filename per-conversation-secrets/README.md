@@ -9,6 +9,25 @@ OpenHands allows users to define secrets at the user level, but sometimes you ne
 secrets that are specific to a single conversation - for example, a temporary API token or
 a session-specific credential.
 
+## APIs Used
+
+These tests exercise **two separate OpenHands APIs**:
+
+### 1. App Server API
+- **Purpose**: Manages sandboxes, conversations, and user resources
+- **Base URL**: `https://app.all-hands.dev/api` (or custom deployment)
+- **Auth Header**: `X-Access-Token: <your_api_key>`
+- **OpenAPI Spec**: `https://app.all-hands.dev/openapi.json`
+
+### 2. Agent Server API
+- **Purpose**: Direct agent interaction within a running sandbox
+- **Base URL**: Obtained from sandbox's `exposed_urls` array (look for `name="AGENT_SERVER"`)
+- **Auth Header**: `X-Session-API-Key: <session_api_key>` (from sandbox creation response)
+- **OpenAPI Spec**: `{agent_server_url}/openapi.json`
+
+> **Tip**: To explore the Agent Server API, first create a sandbox via the App Server,
+> wait for it to reach RUNNING status, then fetch `{agent_server_url}/openapi.json`.
+
 ## Two Approaches
 
 There are now **two ways** to inject per-conversation secrets:
@@ -20,7 +39,7 @@ Pass secrets directly in the `POST /v1/app-conversations` request body:
 ```python
 requests.post(
     f'{api_url}/v1/app-conversations',
-    headers={'Authorization': f'Bearer {api_key}'},
+    headers={'X-Access-Token': api_key},  # App Server auth
     json={
         'sandbox_id': sandbox_id,
         'initial_message': {...},
@@ -67,8 +86,9 @@ requests.post(
 
 | Feature | At Start (New) | After Start (Original) |
 |---------|----------------|------------------------|
-| API Endpoint | `POST /v1/app-conversations` | `POST {agent}/api/conversations/{id}/secrets` |
-| Auth Header | `Authorization: Bearer {api_key}` | `X-Session-API-Key: {session_key}` |
+| API | App Server | Agent Server |
+| Endpoint | `POST /v1/app-conversations` | `POST /api/conversations/{id}/secrets` |
+| Auth Header | `X-Access-Token: {api_key}` | `X-Session-API-Key: {session_key}` |
 | Timing | Before agent runs | After conversation created |
 | Simplicity | Single request | Multiple requests |
 | Mid-conversation | No | Yes |
@@ -111,10 +131,10 @@ Both approaches have been tested and verified:
    for the same conversation. You must query the Agent Server to find the correct ID.
 
 2. **Two Authentication Schemes**:
-   - App Server: `Authorization: Bearer {api_key}`
+   - App Server: `X-Access-Token: {api_key}`
    - Agent Server: `X-Session-API-Key: {session_api_key}`
 
-3. **Secrets Endpoint**: `POST /api/conversations/{id}/secrets`
+3. **Secrets Endpoint** (Agent Server): `POST /api/conversations/{id}/secrets`
    - Body: `{"secrets": {"KEY": "value"}}`
    - Secrets become environment variables (`$KEY`) for **bash commands**
 
@@ -201,48 +221,74 @@ python test_secrets.py
 ## API Workflow
 
 ```python
-# 1. Start sandbox
-POST https://app.all-hands.dev/api/v1/sandboxes
-Headers: Authorization: Bearer {api_key}
-→ {id, session_api_key, exposed_urls}
+# ============================================================
+# APP SERVER API (https://app.all-hands.dev/api)
+# Auth: X-Access-Token header
+# ============================================================
 
-# 2. Wait for RUNNING status, get agent_server_url from exposed_urls
-GET https://app.all-hands.dev/api/v1/sandboxes/search
-# Find your sandbox in the "items" array and check "exposed_urls"
+# 1. Create sandbox
+POST /v1/sandboxes
+Headers: X-Access-Token: {api_key}
+→ {id, session_api_key, status: "STARTING", exposed_urls: null}
+
+# 2. Poll for RUNNING status
+GET /v1/sandboxes/search
+Headers: X-Access-Token: {api_key}
+→ {items: [{id, status: "RUNNING", exposed_urls: [...], session_api_key}]}
+# Find AGENT_SERVER in exposed_urls array
 
 # 3. Start conversation WITH secrets (new approach)
-POST https://app.all-hands.dev/api/v1/app-conversations
-Headers: Authorization: Bearer {api_key}
+POST /v1/app-conversations
+Headers: X-Access-Token: {api_key}
 Body: {sandbox_id: "...", initial_message: {...}, secrets: {...}}
 
-# The secrets are now available as $SECRET_NAME in the conversation!
+# ============================================================
+# AGENT SERVER API (from exposed_urls AGENT_SERVER)
+# Auth: X-Session-API-Key header
+# ============================================================
+
+# 4. Find conversation on agent server
+GET /api/conversations/search
+Headers: X-Session-API-Key: {session_api_key}
+→ {items: [{id, status}]}
+
+# 5. Send message / check events
+POST /api/conversations/{id}/events
+GET /api/conversations/{id}/events/search
+Headers: X-Session-API-Key: {session_api_key}
 ```
 
-## API Notes
+## API Reference
 
-The OpenHands REST API has some important details to be aware of:
+### App Server API
 
-### Sandbox ID Field
-- The POST response uses `id` (not `sandbox_id`)
-- Example: `{"id": "abc123", "status": "STARTING", ...}`
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/v1/sandboxes` | POST | Create sandbox → `{id, session_api_key, ...}` |
+| `/v1/sandboxes/search` | GET | List sandboxes → `{items: [...]}` |
+| `/v1/sandboxes/{id}` | DELETE | Delete sandbox (use `?sandbox_id=` query param) |
+| `/v1/app-conversations` | POST | Start conversation (supports `secrets` field) |
 
-### Getting Sandbox Status
-- Use `GET /api/v1/sandboxes/search` (returns paginated list)
-- The response structure is: `{"items": [...], "next_page_id": ...}`
-- Filter client-side for your sandbox ID
+### Agent Server API
 
-### Agent Server URL
-- Located in `exposed_urls` array, not a direct field
-- Look for entry with `"name": "AGENT_SERVER"`
-- Example: `exposed_urls: [{name: "AGENT_SERVER", url: "https://..."}]`
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/conversations/search` | GET | List conversations → `{items: [...]}` |
+| `/api/conversations/{id}/secrets` | POST | Inject secrets → `{success: true}` |
+| `/api/conversations/{id}/events` | POST | Send user message |
+| `/api/conversations/{id}/events/search` | GET | List events → `{items: [...]}` |
 
-### Events Endpoint
-- Use `GET /api/v1/conversation/{id}/events/search` for listing events
-- The `/events` endpoint requires specific event IDs
+### Getting the OpenAPI Specs
 
-### OpenAPI Spec
-- Available at `/openapi.json` on any deployment
-- Example: `https://app.all-hands.dev/openapi.json`
+```bash
+# App Server OpenAPI
+curl https://app.all-hands.dev/openapi.json
+
+# Agent Server OpenAPI (requires running sandbox)
+# 1. Create sandbox and wait for RUNNING status
+# 2. Get agent_server_url from exposed_urls (name="AGENT_SERVER")
+curl {agent_server_url}/openapi.json
+```
 
 ## License
 
