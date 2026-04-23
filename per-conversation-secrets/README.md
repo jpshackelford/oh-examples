@@ -138,19 +138,18 @@ Both approaches have been tested and verified:
    - Body: `{"secrets": {"KEY": "value"}}`
    - Secrets become environment variables (`$KEY`) for **bash commands**
 
-4. **MCP Config Variable Expansion - LIMITATION**:
+4. **MCP Config Variable Expansion**:
    - MCP configs support `${VARIABLE}` syntax
-   - BUT: This expands from `os.environ`, NOT from injected secrets
-   - Injected secrets go to `SecretRegistry` (used for bash commands)
-   - Therefore: Per-conversation secrets do NOT work for MCP config expansion
-   - **Workaround**: Use user-level secrets (defined in OpenHands settings) for MCP authentication
+   - With PR #14009 + SDK #2873: Secrets passed at conversation start ARE available for MCP config expansion
+   - This enables per-conversation MCP authentication tokens
 
 ## Files
 
 - `test_secrets_at_start.py` - **NEW**: Test secrets passed at conversation start (recommended)
 - `test_secrets.py` - Test secrets injected after conversation start (original approach)
+- `test_mcp_secrets_at_start.py` - **NEW**: Test MCP config variable expansion with secrets at start
 - `mcp_server.py` - Simple MCP server for testing token validation
-- `test_mcp_secrets.py` - (Experimental) Test for MCP config variable expansion
+- `test_mcp_secrets.py` - (Legacy) Test for MCP with secrets injected after start
 
 ## Usage
 
@@ -199,6 +198,22 @@ export OH_API_KEY="sk-oh-..."
 
 # Run the test
 python test_secrets.py
+```
+
+### Test MCP config variable expansion with secrets at start (NEW)
+
+This test verifies that secrets passed at conversation start are available for MCP config variable expansion:
+
+```bash
+# Terminal 1: Start the MCP server
+python mcp_server.py --port 12000 --expected-token "per-conv-secret-xyz-123"
+
+# Terminal 2: Run the test
+export OH_API_KEY="sk-oh-..."
+export OH_API_URL="https://ohpr-14009-30.staging.all-hands.dev/api"  # or your deployment
+export MCP_SERVER_URL="https://work-1-xxx.prod-runtime.all-hands.dev"  # where mcp_server.py is running
+
+python test_mcp_secrets_at_start.py
 
 # Expected output:
 # ======================================================================
