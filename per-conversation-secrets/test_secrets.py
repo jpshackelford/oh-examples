@@ -1,33 +1,61 @@
 #!/usr/bin/env python3
 """
-End-to-end test for per-conversation secrets via REST API.
+End-to-end test for per-conversation secrets injected AFTER conversation start.
 
-This script demonstrates:
-1. Starting a sandbox and conversation
-2. Injecting a per-conversation secret
-3. Verifying the secret is available to the agent (as environment variable)
+## Overview
 
-For MCP config expansion test, see test_mcp_secrets.py
+This script tests the ORIGINAL approach for injecting secrets:
+- Start a conversation first
+- Inject secrets via the Agent Server's /secrets endpoint
+- Secrets become available as environment variables for subsequent commands
 
-Usage:
+Compare with test_secrets_at_start.py which injects secrets AT conversation start.
+
+## APIs Used
+
+This test exercises TWO separate OpenHands APIs:
+
+1. **App Server API** - Manages sandboxes and conversations
+   - Base URL: https://app.all-hands.dev/api (or OH_API_URL)
+   - Auth: `X-Access-Token: <api_key>` header
+   - OpenAPI spec: `{base_url}/openapi.json`
+   - Used for: Creating sandboxes, starting conversations
+
+2. **Agent Server API** - Direct agent interaction within a sandbox
+   - Base URL: Obtained from sandbox's `exposed_urls` (name="AGENT_SERVER")
+   - Auth: `X-Session-API-Key: <session_api_key>` header
+   - OpenAPI spec: `{agent_server_url}/openapi.json`
+   - Used for: Injecting secrets, sending messages, retrieving events
+
+## Usage
+
     export OH_API_KEY="sk-oh-..."
+    export OH_API_URL="https://app.all-hands.dev/api"  # optional, defaults to prod
     python test_secrets.py
 """
 
 import os
 import sys
 import time
-import json
-import requests
 from typing import Any
 
-# Configuration
-API_KEY = os.environ.get('OH_API_KEY', '')
-APP_URL = "https://app.all-hands.dev/api"
+import requests
 
-# Test secret
+
+# Configuration
+API_KEY = os.environ.get("OH_API_KEY", "")
+API_URL = os.environ.get("OH_API_URL", "https://app.all-hands.dev/api")
+
+# Test secret - use a distinctive value we can verify in output
 SECRET_NAME = "TEST_SECRET_TOKEN"
 SECRET_VALUE = "FUZZY_WUZZY_WAS_A_BEAR_FUZZY_WUZZY_HAD_NO_HAIR"
+
+# Timeout constants (in seconds)
+SANDBOX_READY_TIMEOUT = 180  # Max time to wait for sandbox to be RUNNING
+SANDBOX_POLL_INTERVAL = 2  # How often to check sandbox status
+CONV_APPEAR_TIMEOUT = 30  # Max time for conversation to appear
+INITIAL_MSG_WAIT = 15  # Wait for agent to process initial message
+AGENT_EXEC_WAIT = 45  # Wait for agent to execute command
 
 
 def log(msg: str) -> None:
@@ -35,247 +63,375 @@ def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}")
 
 
-def start_sandbox() -> dict[str, Any]:
-    """Start a new sandbox and wait for it to be ready."""
-    headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
-    
-    log("Starting sandbox...")
-    resp = requests.post(f"{APP_URL}/v1/sandboxes", headers=headers, timeout=60)
-    resp.raise_for_status()
-    sandbox = resp.json()
-    sandbox_id = sandbox["id"]
-    log(f"  Sandbox ID: {sandbox_id}")
-    
-    # Wait for running
-    log("Waiting for sandbox to be ready...")
-    for i in range(120):
-        resp = requests.get(f"{APP_URL}/v1/sandboxes", headers=headers, 
-                          params={"id": sandbox_id}, timeout=30)
-        sandboxes = resp.json()
-        if sandboxes and sandboxes[0]["status"] == "RUNNING":
-            sandbox = sandboxes[0]
-            session_key = sandbox["session_api_key"]
-            agent_url = None
-            for url_info in sandbox.get("exposed_urls", []):
-                if url_info["name"] == "AGENT_SERVER":
-                    agent_url = url_info["url"]
-                    break
-            if agent_url:
-                log(f"  Agent Server: {agent_url}")
-                return {
-                    "sandbox_id": sandbox_id,
-                    "session_api_key": session_key,
-                    "agent_server_url": agent_url,
-                    "headers": headers
-                }
-        time.sleep(2)
-    
-    raise TimeoutError("Sandbox did not become ready in time")
+# =============================================================================
+# App Server API Functions (sandbox and conversation management)
+# =============================================================================
 
 
-def start_conversation(sandbox_info: dict[str, Any]) -> str:
-    """Start a conversation and return the agent-server conversation ID."""
-    agent_url = sandbox_info["agent_server_url"]
-    agent_headers = {"X-Session-API-Key": sandbox_info["session_api_key"]}
-    
-    # Get baseline conversations
-    resp = requests.get(f"{agent_url}/api/conversations/search", 
-                       headers=agent_headers, timeout=30)
-    before_ids = set(c["id"] for c in resp.json().get("items", []))
-    
-    # Start conversation via app-server
-    log("Starting conversation...")
+def get_sandbox_via_search(
+    headers: dict[str, str], sandbox_id: str
+) -> dict[str, Any] | None:
+    """
+    Get sandbox by ID using GET /v1/sandboxes/search.
+
+    Per OpenAPI: Returns paginated list with {items: [...], next_page_id: ...}
+    """
+    resp = requests.get(f"{API_URL}/v1/sandboxes/search", headers=headers, timeout=30)
+    if resp.status_code == 200:
+        data = resp.json()
+        for item in data.get("items", []):
+            if item.get("id") == sandbox_id:
+                return item
+    return None
+
+
+def create_sandbox(headers: dict[str, str]) -> dict[str, Any]:
+    """
+    Create a new sandbox via POST /v1/sandboxes.
+
+    Per OpenAPI: Returns SandboxInfo {id, status, session_api_key, ...}
+    """
     resp = requests.post(
-        f"{APP_URL}/v1/app-conversations",
-        headers=sandbox_info["headers"],
-        json={
-            "sandbox_id": sandbox_info["sandbox_id"],
-            "initial_message": {
-                "role": "user",
-                "content": [{"type": "text", "text": "Say 'Ready' and nothing else."}]
-            }
-        },
-        timeout=60
+        f"{API_URL}/v1/sandboxes", headers=headers, json={}, timeout=60
     )
     resp.raise_for_status()
-    
-    # Find new conversation on agent-server
-    for i in range(30):
-        resp = requests.get(f"{agent_url}/api/conversations/search", 
-                          headers=agent_headers, timeout=30)
-        after_ids = set(c["id"] for c in resp.json().get("items", []))
-        new_ids = after_ids - before_ids
-        if new_ids:
-            conv_id = list(new_ids)[0]
-            log(f"  Conversation ID: {conv_id}")
-            return conv_id
-        time.sleep(1)
-    
-    raise TimeoutError("Conversation did not appear on agent server")
+    return resp.json()
 
 
-def inject_secret(sandbox_info: dict[str, Any], conv_id: str) -> bool:
-    """Inject a secret into the conversation."""
-    agent_url = sandbox_info["agent_server_url"]
-    agent_headers = {"X-Session-API-Key": sandbox_info["session_api_key"]}
-    
-    log(f"Injecting secret: {SECRET_NAME}={SECRET_VALUE[:20]}...")
+def delete_sandbox(headers: dict[str, str], sandbox_id: str) -> None:
+    """
+    Delete sandbox via DELETE /v1/sandboxes/<id>?sandbox_id=<id>.
+
+    API QUIRK: The OpenAPI spec shows path '/v1/sandboxes/{id}' but does not
+    define {id} as a path parameter. Instead, 'sandbox_id' is a required query
+    parameter. Testing confirms the path segment is IGNORED - only the query
+    param matters. We use the ID in both places for clarity and future-proofing.
+
+    See: https://github.com/OpenHands/OpenHands/issues/XXXX (API inconsistency)
+    """
+    try:
+        requests.delete(
+            f"{API_URL}/v1/sandboxes/{sandbox_id}",
+            headers=headers,
+            params={"sandbox_id": sandbox_id},
+            timeout=30,
+        )
+    except Exception:
+        pass
+
+
+def start_conversation(
+    headers: dict[str, str], sandbox_id: str, initial_message: str
+) -> dict[str, Any]:
+    """
+    Start conversation via POST /v1/app-conversations.
+
+    Per OpenAPI: Returns AppConversationStartTask with {id, status, request, ...}
+    """
+    payload = {
+        "sandbox_id": sandbox_id,
+        "initial_message": {
+            "role": "user",
+            "content": [{"type": "text", "text": initial_message}],
+        },
+    }
+    resp = requests.post(
+        f"{API_URL}/v1/app-conversations", headers=headers, json=payload, timeout=60
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+# =============================================================================
+# Agent Server API Functions (direct agent interaction)
+# =============================================================================
+
+
+def get_agent_server_info(
+    sandbox_data: dict[str, Any],
+) -> tuple[str, str] | None:
+    """
+    Extract agent server URL and session key from sandbox data.
+
+    Per OpenAPI: SandboxInfo has exposed_urls array with {name, url, port}.
+    Look for name="AGENT_SERVER" to get the agent server URL.
+    """
+    session_key = sandbox_data.get("session_api_key")
+    if not session_key:
+        log("Error: Missing session_api_key in sandbox data")
+        return None
+
+    exposed_urls = sandbox_data.get("exposed_urls")
+    if not exposed_urls:
+        log("Error: Missing or empty exposed_urls in sandbox data")
+        return None
+
+    for url_info in exposed_urls:
+        if url_info.get("name") == "AGENT_SERVER":
+            agent_url = url_info.get("url")
+            if not agent_url:
+                log("Error: AGENT_SERVER found but url is empty")
+                return None
+            return agent_url, session_key
+
+    log("Error: AGENT_SERVER not found in exposed_urls")
+    return None
+
+
+def get_agent_conversations(agent_url: str, session_key: str) -> list[dict[str, Any]]:
+    """
+    List conversations via GET /api/conversations/search.
+
+    Per Agent Server OpenAPI: Returns {items: [...], next_page_id: ...}
+    Auth: X-Session-API-Key header
+    """
+    headers = {"X-Session-API-Key": session_key}
+    resp = requests.get(
+        f"{agent_url}/api/conversations/search", headers=headers, timeout=30
+    )
+    resp.raise_for_status()
+    return resp.json().get("items", [])
+
+
+def inject_secrets(
+    agent_url: str, session_key: str, conv_id: str, secrets: dict[str, str]
+) -> bool:
+    """
+    Inject secrets via POST /api/conversations/{id}/secrets.
+
+    Per Agent Server OpenAPI: Accepts UpdateSecretsRequest with {secrets: {...}}
+    The API accepts both simple string values and SecretSource objects.
+    Auth: X-Session-API-Key header
+    """
+    headers = {"X-Session-API-Key": session_key, "Content-Type": "application/json"}
     resp = requests.post(
         f"{agent_url}/api/conversations/{conv_id}/secrets",
-        headers=agent_headers,
-        json={"secrets": {SECRET_NAME: SECRET_VALUE}},
-        timeout=30
+        headers=headers,
+        json={"secrets": secrets},
+        timeout=30,
     )
-    
     if resp.status_code == 200:
-        result = resp.json()
-        log(f"  Result: {result}")
-        return result.get("success", False)
-    else:
-        log(f"  ERROR: {resp.status_code} - {resp.text}")
-        return False
+        return resp.json().get("success", False)
+    return False
 
 
-def send_message(sandbox_info: dict[str, Any], conv_id: str, message: str) -> bool:
-    """Send a message to the conversation."""
-    agent_url = sandbox_info["agent_server_url"]
-    agent_headers = {"X-Session-API-Key": sandbox_info["session_api_key"]}
-    
-    log(f"Sending message: {message[:50]}...")
+def send_user_message(
+    agent_url: str, session_key: str, conv_id: str, message: str
+) -> bool:
+    """
+    Send user message via POST /api/conversations/{id}/events.
+
+    Per Agent Server OpenAPI: Accepts message with role, content, and run flag.
+    Auth: X-Session-API-Key header
+    """
+    headers = {"X-Session-API-Key": session_key, "Content-Type": "application/json"}
+    payload = {
+        "role": "user",
+        "content": [{"type": "text", "text": message}],
+        "run": True,
+    }
     resp = requests.post(
         f"{agent_url}/api/conversations/{conv_id}/events",
-        headers=agent_headers,
-        json={
-            "role": "user",
-            "content": [{"type": "text", "text": message}],
-            "run": True
-        },
-        timeout=60
+        headers=headers,
+        json=payload,
+        timeout=60,
     )
-    
     return resp.status_code == 200
 
 
-def check_events_for_secret(sandbox_info: dict[str, Any], conv_id: str) -> bool:
-    """Check conversation events for evidence of the secret being used."""
-    agent_url = sandbox_info["agent_server_url"]
-    agent_headers = {"X-Session-API-Key": sandbox_info["session_api_key"]}
-    
-    log("Checking events for transformed secret...")
+def get_conversation_events(
+    agent_url: str, session_key: str, conv_id: str
+) -> list[dict[str, Any]]:
+    """
+    Get events via GET /api/conversations/{id}/events/search.
+
+    Per Agent Server OpenAPI: Returns {items: [...], next_page_id: ...}
+    Auth: X-Session-API-Key header
+    """
+    headers = {"X-Session-API-Key": session_key}
     resp = requests.get(
         f"{agent_url}/api/conversations/{conv_id}/events/search",
-        headers=agent_headers,
+        headers=headers,
         params={"limit": 100},
-        timeout=60
+        timeout=60,
     )
-    
-    if resp.status_code != 200:
-        log(f"  ERROR: Could not fetch events: {resp.status_code}")
-        return False
-    
-    events = resp.json().get("items", [])
-    log(f"  Total events: {len(events)}")
-    
-    # Look for the transformed secret in command outputs
-    expected_output = SECRET_VALUE.lower().replace("_", "_")  # lowercase version
-    
+    if resp.status_code == 200:
+        return resp.json().get("items", [])
+    return []
+
+
+def check_events_for_secret(events: list[dict[str, Any]], expected_value: str) -> bool:
+    """Check if the secret value appears in any event output."""
+    expected_lower = expected_value.lower()
     for event in events:
         obs = event.get("observation", {})
         if isinstance(obs, dict):
             content = obs.get("content", "")
-            # Handle both string and list content
+            # Handle both string and list content formats
             if isinstance(content, list):
                 for item in content:
                     if isinstance(item, dict):
                         text = item.get("text", "")
-                        if "fuzzy" in text.lower():
+                        if expected_lower in text.lower():
                             return True
-            elif isinstance(content, str) and "fuzzy" in content.lower():
+            elif isinstance(content, str) and expected_lower in content.lower():
                 return True
-    
     return False
 
 
-def cleanup(sandbox_info: dict[str, Any]) -> None:
-    """Clean up the sandbox."""
-    log("Cleaning up sandbox...")
-    try:
-        requests.delete(
-            f"{APP_URL}/v1/sandboxes/{sandbox_info['sandbox_id']}",
-            headers=sandbox_info["headers"],
-            timeout=30
-        )
-        log("  Done.")
-    except Exception as e:
-        log(f"  Warning: Cleanup failed: {e}")
+# =============================================================================
+# Main Test Logic
+# =============================================================================
 
 
 def main() -> int:
+    if not API_KEY:
+        print("Error: Please set OH_API_KEY environment variable")
+        print('  export OH_API_KEY="sk-oh-..."')
+        return 1
+
     print("=" * 70)
-    print("  PER-CONVERSATION SECRETS TEST")
+    print(" PER-CONVERSATION SECRETS TEST (AFTER START)")
+    print(" Testing: POST /api/conversations/{id}/secrets endpoint")
     print("=" * 70)
     print()
-    
-    if not API_KEY:
-        print("ERROR: OH_API_KEY environment variable not set")
-        print("Usage: export OH_API_KEY='sk-oh-...' && python test_secrets.py")
-        return 1
-    
-    sandbox_info = None
+
+    log(f"App Server API: {API_URL}")
+    log(f"  OpenAPI spec: {API_URL.replace('/api', '')}/openapi.json")
+
+    app_headers = {"X-Access-Token": API_KEY, "Content-Type": "application/json"}
+    sandbox_id = None
+    agent_url = None
+    session_key = None
+
     try:
-        # Step 1: Start sandbox
-        sandbox_info = start_sandbox()
-        
-        # Step 2: Start conversation
-        conv_id = start_conversation(sandbox_info)
-        
-        # Step 3: Inject secret
-        if not inject_secret(sandbox_info, conv_id):
-            log("ERROR: Failed to inject secret")
+        # Step 1: Create sandbox
+        log("Creating sandbox...")
+        sandbox_data = create_sandbox(app_headers)
+        sandbox_id = sandbox_data.get("id")
+        log(f"  Sandbox ID: {sandbox_id}")
+
+        # Wait for sandbox to be ready
+        log(f"Waiting for sandbox to be ready (max {SANDBOX_READY_TIMEOUT}s)...")
+        max_attempts = SANDBOX_READY_TIMEOUT // SANDBOX_POLL_INTERVAL
+        for attempt in range(max_attempts):
+            sandbox_data = get_sandbox_via_search(app_headers, sandbox_id)
+            if sandbox_data:
+                status = sandbox_data.get("status", "")
+                if status == "RUNNING":
+                    break
+                log(f"  Status: {status}")
+            time.sleep(SANDBOX_POLL_INTERVAL)
+        else:
+            elapsed = max_attempts * SANDBOX_POLL_INTERVAL
+            log(f"Error: Sandbox did not become ready in {elapsed}s")
             return 1
-        
+
+        # Get agent server info
+        agent_info = get_agent_server_info(sandbox_data)
+        if not agent_info:
+            log("Error: Could not get agent server URL from sandbox")
+            return 1
+        agent_url, session_key = agent_info
+        log(f"Agent Server API: {agent_url}")
+        log(f"  OpenAPI spec: {agent_url}/openapi.json")
+
+        # Get baseline conversations on agent server
+        before_convs = {
+            c["id"] for c in get_agent_conversations(agent_url, session_key)
+        }
+
+        # Step 2: Start conversation (without secrets)
+        log("Starting conversation...")
+        start_conversation(app_headers, sandbox_id, "Say 'Ready' and nothing else.")
+
+        # Find the new conversation on agent server
+        log(f"Finding conversation on agent server (max {CONV_APPEAR_TIMEOUT}s)...")
+        agent_conv_id = None
+        for _ in range(CONV_APPEAR_TIMEOUT):
+            after_convs = {
+                c["id"] for c in get_agent_conversations(agent_url, session_key)
+            }
+            new_convs = after_convs - before_convs
+            if new_convs:
+                agent_conv_id = list(new_convs)[0]
+                break
+            time.sleep(1)
+
+        if not agent_conv_id:
+            log(f"Error: Conversation did not appear in {CONV_APPEAR_TIMEOUT}s")
+            return 1
+        log(f"  Agent conversation ID: {agent_conv_id}")
+
+        # Step 3: Inject secrets via Agent Server API
+        log(f"Injecting secret: {SECRET_NAME}='{SECRET_VALUE[:20]}...'")
+        secrets = {SECRET_NAME: SECRET_VALUE}
+        if not inject_secrets(agent_url, session_key, agent_conv_id, secrets):
+            log("Error: Failed to inject secret")
+            return 1
+        log("  Secret injected successfully")
+
         # Step 4: Wait for initial message to complete
-        log("Waiting for initial message to complete...")
-        time.sleep(15)
-        
+        log(f"Waiting for initial message to complete ({INITIAL_MSG_WAIT}s)...")
+        time.sleep(INITIAL_MSG_WAIT)
+
         # Step 5: Send message that uses the secret
-        message = f"Run this exact command: echo ${SECRET_NAME} | tr '[:upper:]' '[:lower:]'"
-        if not send_message(sandbox_info, conv_id, message):
-            log("ERROR: Failed to send message")
+        log(f"Sending command to use secret: echo ${SECRET_NAME} | tr ...")
+        message = (
+            f"Run this exact command: echo ${SECRET_NAME} | tr '[:upper:]' '[:lower:]'"
+        )
+        if not send_user_message(agent_url, session_key, agent_conv_id, message):
+            log("Error: Failed to send message")
             return 1
-        
-        # Step 6: Wait for agent to process
-        log("Waiting for agent to execute command...")
-        time.sleep(45)
-        
-        # Step 7: Check results
-        if check_events_for_secret(sandbox_info, conv_id):
+
+        # Step 6: Wait for agent to execute
+        log(f"Waiting for agent to execute command ({AGENT_EXEC_WAIT}s)...")
+        time.sleep(AGENT_EXEC_WAIT)
+
+        # Step 7: Check events for the secret value
+        log("Checking events for transformed secret...")
+        events = get_conversation_events(agent_url, session_key, agent_conv_id)
+        log(f"  Total events: {len(events)}")
+
+        if check_events_for_secret(events, SECRET_VALUE):
             print()
             print("=" * 70)
-            print("  ✅ SUCCESS! Per-conversation secret was injected and used!")
-            print(f"  Secret: {SECRET_NAME}={SECRET_VALUE}")
-            print("  The secret was available as an environment variable")
-            print("  and was successfully transformed by the agent.")
+            print(" ✅ SUCCESS! Per-conversation secret was injected and used!")
+            print()
+            print(f"    Secret: {SECRET_NAME}={SECRET_VALUE}")
+            print(
+                "    The secret was injected via POST /api/conversations/{id}/secrets"
+            )
+            print("    and was available as an environment variable to the agent.")
             print("=" * 70)
             return 0
         else:
-            print()
-            print("=" * 70)
-            print("  ⚠️  Could not verify secret in output")
-            print("  The secret injection succeeded, but we couldn't find")
-            print("  evidence of it being used in the command output.")
-            print("=" * 70)
-            return 1
-    
+            log("  Secret not found in output")
+            log("  Recent events:")
+            for event in events[-5:]:
+                etype = event.get("kind", "?")
+                log(f"    {etype}: {str(event)[:80]}...")
+
+        print()
+        print("=" * 70)
+        print(" ❌ FAILED: Could not verify secret was available to agent")
+        print("=" * 70)
+        return 1
+
+    except requests.RequestException as e:
+        log(f"Error: API request failed: {e}")
+        return 1
     except Exception as e:
-        log(f"ERROR: {e}")
+        log(f"Error: {e}")
         import traceback
+
         traceback.print_exc()
         return 1
-    
     finally:
-        if sandbox_info:
-            cleanup(sandbox_info)
+        if sandbox_id:
+            log("Cleaning up sandbox...")
+            delete_sandbox(app_headers, sandbox_id)
+            log("  Done.")
 
 
 if __name__ == "__main__":
