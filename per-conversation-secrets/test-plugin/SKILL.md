@@ -16,7 +16,7 @@ This plugin requires two secrets to be injected at conversation start:
 ## Usage
 
 The MCP config uses variable expansion for both the server URL and the authorization token:
-- Server URL: `${MCP_SERVER_URL}/mcp`  
+- Server URL: `${MCP_SERVER_URL}/mcp`
 - Auth header: `Authorization: Bearer ${MCP_SECRET_TOKEN}`
 
 Both variables are expanded from the conversation's injected secrets (passed via the `secrets` field in `AppConversationStartRequest`).

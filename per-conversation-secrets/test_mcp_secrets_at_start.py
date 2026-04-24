@@ -10,8 +10,10 @@ This script tests the NEW approach from PR #14009:
 5. Agent calls the MCP tool - server validates the token was passed correctly
 
 This proves that:
-- Secrets passed at conversation start (via `secrets` field) work with MCP config expansion
-- The full: secrets-at-start → plugin → MCP config → variable expansion → MCP server flow works
+- Secrets passed at conversation start (via `secrets` field) work with
+  MCP config expansion
+- The full flow works: secrets-at-start → plugin → MCP config →
+  variable expansion → MCP server
 
 Prerequisites:
     - OH_API_KEY environment variable
@@ -31,7 +33,6 @@ Usage:
 import os
 import sys
 import time
-from typing import Any
 
 import requests
 
@@ -89,7 +90,9 @@ def get_sandbox_via_search(headers: dict, sandbox_id: str) -> dict | None:
 
 def create_sandbox(headers: dict) -> dict:
     """Create a new sandbox."""
-    resp = requests.post(f"{API_URL}/v1/sandboxes", headers=headers, json={}, timeout=60)
+    resp = requests.post(
+        f"{API_URL}/v1/sandboxes", headers=headers, json={}, timeout=60
+    )
     resp.raise_for_status()
     return resp.json()
 
@@ -111,7 +114,7 @@ def get_agent_server_info(sandbox_data: dict) -> tuple[str, str] | None:
     """Extract agent server URL and session key from sandbox data."""
     session_key = sandbox_data.get("session_api_key")
     exposed_urls = sandbox_data.get("exposed_urls", [])
-    
+
     for url_info in exposed_urls:
         if url_info.get("name") == "AGENT_SERVER":
             return url_info.get("url"), session_key
@@ -127,7 +130,7 @@ def start_conversation_with_secrets_and_plugin(
 ) -> dict:
     """
     Start conversation with BOTH secrets AND plugin in the same request.
-    
+
     This is the key test for PR #14009 - secrets passed at conversation start
     should be available for MCP config variable expansion.
     """
@@ -135,16 +138,18 @@ def start_conversation_with_secrets_and_plugin(
         "sandbox_id": sandbox_id,
         "initial_message": {
             "role": "user",
-            "content": [{"type": "text", "text": "Say 'Ready' and wait for instructions."}],
+            "content": [
+                {"type": "text", "text": "Say 'Ready' and wait for instructions."}
+            ],
         },
         "secrets": secrets,
         "plugins": [{"source": plugin_source, "repo_path": plugin_path}],
     }
-    
+
     log("Starting conversation with secrets AND plugin...")
     log(f"  Secrets: {list(secrets.keys())}")
     log(f"  Plugin: {plugin_source} / {plugin_path}")
-    
+
     resp = requests.post(
         f"{API_URL}/v1/app-conversations",
         headers=headers,
@@ -153,23 +158,27 @@ def start_conversation_with_secrets_and_plugin(
     )
     resp.raise_for_status()
     result = resp.json()
-    
+
     # Check that secrets were accepted
     request_secrets = result.get("request", {}).get("secrets", {})
     log(f"  Secrets in response: {request_secrets}")
-    
+
     return result
 
 
 def get_agent_conversations(agent_url: str, session_key: str) -> list[dict]:
     """List conversations on agent server."""
     headers = {"X-Session-API-Key": session_key}
-    resp = requests.get(f"{agent_url}/api/conversations/search", headers=headers, timeout=30)
+    resp = requests.get(
+        f"{agent_url}/api/conversations/search", headers=headers, timeout=30
+    )
     resp.raise_for_status()
     return resp.json().get("items", [])
 
 
-def send_user_message(agent_url: str, session_key: str, conv_id: str, message: str) -> bool:
+def send_user_message(
+    agent_url: str, session_key: str, conv_id: str, message: str
+) -> bool:
     """Send a message to the conversation."""
     headers = {"X-Session-API-Key": session_key, "Content-Type": "application/json"}
     payload = {
@@ -186,7 +195,9 @@ def send_user_message(agent_url: str, session_key: str, conv_id: str, message: s
     return resp.status_code == 200
 
 
-def get_conversation_events(agent_url: str, session_key: str, conv_id: str) -> list[dict]:
+def get_conversation_events(
+    agent_url: str, session_key: str, conv_id: str
+) -> list[dict]:
     """Get events from conversation."""
     headers = {"X-Session-API-Key": session_key}
     resp = requests.get(
@@ -214,10 +225,13 @@ def check_for_success(events: list[dict]) -> tuple[bool, str]:
                 for item in content:
                     if isinstance(item, dict):
                         text = item.get("text", "")
-                        if "SUCCESS" in text.upper() or "TOKEN VALIDATED" in text.upper():
+                        if (
+                            "SUCCESS" in text.upper()
+                            or "TOKEN VALIDATED" in text.upper()
+                        ):
                             return True, text[:200]
-        
-        # Check action content  
+
+        # Check action content
         action = event.get("action", {})
         if isinstance(action, dict):
             for key in ["message", "content", "text"]:
@@ -225,7 +239,7 @@ def check_for_success(events: list[dict]) -> tuple[bool, str]:
                 if isinstance(val, str):
                     if "SUCCESS" in val.upper() or "TOKEN VALIDATED" in val.upper():
                         return True, val[:200]
-    
+
     return False, ""
 
 
@@ -240,11 +254,13 @@ def main() -> int:
     if not API_KEY:
         print("ERROR: OH_API_KEY environment variable not set")
         return 1
-    
+
     if not MCP_SERVER_URL:
         print("ERROR: MCP_SERVER_URL environment variable not set")
         print("  Set it to the URL where mcp_server.py is running")
-        print("  Example: export MCP_SERVER_URL='https://work-1-xxx.prod-runtime.all-hands.dev'")
+        print(
+            "  Example: export MCP_SERVER_URL='https://work-1-xxx.prod-runtime.all-hands.dev'"
+        )
         return 1
 
     log(f"API URL: {API_URL}")
@@ -275,7 +291,9 @@ def main() -> int:
             sandbox_data = get_sandbox_via_search(app_headers, sandbox_id)
             if sandbox_data and sandbox_data.get("status") == "RUNNING":
                 break
-            log(f"  Status: {sandbox_data.get('status') if sandbox_data else 'unknown'}")
+            log(
+                f"  Status: {sandbox_data.get('status') if sandbox_data else 'unknown'}"
+            )
             time.sleep(SANDBOX_POLL_INTERVAL)
         else:
             log("ERROR: Sandbox did not become ready")
@@ -290,16 +308,18 @@ def main() -> int:
         log(f"Agent Server: {agent_url}")
 
         # Get baseline conversations
-        before_convs = {c["id"] for c in get_agent_conversations(agent_url, session_key)}
+        before_convs = {
+            c["id"] for c in get_agent_conversations(agent_url, session_key)
+        }
 
         # Step 2: Start conversation with SECRETS AND PLUGIN
-        # This is the key test - both secrets should be available for MCP config expansion
+        # Key test: secrets should be available for MCP config expansion
         secrets = {
             "MCP_SERVER_URL": MCP_SERVER_URL,
             "MCP_SECRET_TOKEN": SECRET_TOKEN,
         }
-        
-        conv_task = start_conversation_with_secrets_and_plugin(
+
+        start_conversation_with_secrets_and_plugin(
             app_headers,
             sandbox_id,
             secrets,
@@ -311,7 +331,9 @@ def main() -> int:
         log(f"Finding conversation on agent server (max {CONV_APPEAR_TIMEOUT}s)...")
         agent_conv_id = None
         for _ in range(CONV_APPEAR_TIMEOUT):
-            after_convs = {c["id"] for c in get_agent_conversations(agent_url, session_key)}
+            after_convs = {
+                c["id"] for c in get_agent_conversations(agent_url, session_key)
+            }
             new_convs = after_convs - before_convs
             if new_convs:
                 agent_conv_id = list(new_convs)[0]
@@ -334,7 +356,7 @@ def main() -> int:
             'Call it with echo_message="Testing PR 14009 secrets at start". '
             "Report the exact result - whether validation succeeded or failed."
         )
-        
+
         if not send_user_message(agent_url, session_key, agent_conv_id, message):
             log("ERROR: Failed to send message")
             return 1
@@ -358,8 +380,11 @@ def main() -> int:
             print("  Proven workflow:")
             print("  1. Conversation started with secrets AND plugin in same request")
             print("  2. Secrets: MCP_SERVER_URL and MCP_SECRET_TOKEN")
-            print("  3. Plugin loaded with MCP config containing ${MCP_SERVER_URL} and ${MCP_SECRET_TOKEN}")
-            print("  4. Both variables expanded from secrets passed at conversation start")
+            print("  3. Plugin loaded with MCP config using ${MCP_SERVER_URL}")
+            print("     and ${MCP_SECRET_TOKEN}")
+            print(
+                "  4. Both variables expanded from secrets passed at conversation start"
+            )
             print("  5. MCP server received correct URL and token")
             print("  6. Token validation succeeded!")
             print()
@@ -370,7 +395,9 @@ def main() -> int:
             print("  ❌ FAILED: Could not verify MCP token validation")
             print()
             print("  Possible issues:")
-            print("  - Secrets not expanded in MCP config (PR #14009 / SDK #2873 issue)")
+            print(
+                "  - Secrets not expanded in MCP config (PR #14009 / SDK #2873 issue)"
+            )
             print("  - Plugin didn't load correctly")
             print("  - MCP server connection failed")
             print("  - Agent didn't call the tool")
@@ -394,6 +421,7 @@ def main() -> int:
     except Exception as e:
         log(f"ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         return 1
     finally:
