@@ -1,0 +1,695 @@
+#!/usr/bin/env python3
+"""
+Wanderlust MCP Server - HTTP-based MCP server for travel guide generation.
+
+This server exposes MCP tools that the customer-facing conversation can call.
+It handles:
+- Token-based authentication
+- Customer credential validation
+- Starting private conversations for guide generation
+- Tracking request status in SQLite
+- Returning results to the customer conversation
+
+MCP Transport: Streamable HTTP (simple request/response, no SSE)
+- POST /mcp - JSON-RPC 2.0 messages
+- GET /health - Health check
+
+Usage:
+    export OPENHANDS_API_KEY="sk-oh-..."
+    export MCP_AUTH_TOKEN="your-mcp-token"
+    uv run uvicorn server:app --host 0.0.0.0 --port 8080
+"""
+
+import asyncio
+import json
+import logging
+import os
+import uuid
+from contextlib import asynccontextmanager
+from typing import Any
+
+from fastapi import FastAPI, Header, HTTPException, Request, BackgroundTasks
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+
+from database import Database, RequestStatus
+from conversation_manager import process_guide_request
+
+
+# =============================================================================
+# Configuration
+# =============================================================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+# Environment variables
+OPENHANDS_API_KEY = os.environ.get("OPENHANDS_API_KEY", "")
+OPENHANDS_API_URL = os.environ.get("OPENHANDS_API_URL", "https://app.all-hands.dev/api")
+MCP_AUTH_TOKEN = os.environ.get("MCP_AUTH_TOKEN", "wanderlust-mcp-secret-token")
+
+# Database
+db = Database()
+
+
+# =============================================================================
+# FastAPI App
+# =============================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """App lifespan - startup and shutdown."""
+    logger.info("Wanderlust MCP Server starting...")
+    logger.info(f"OpenHands API URL: {OPENHANDS_API_URL}")
+    logger.info(f"MCP Auth Token configured: {'Yes' if MCP_AUTH_TOKEN else 'No'}")
+    logger.info(f"OpenHands API Key configured: {'Yes' if OPENHANDS_API_KEY else 'No'}")
+    yield
+    logger.info("Wanderlust MCP Server shutting down...")
+
+
+app = FastAPI(
+    title="Wanderlust MCP Server",
+    description="MCP server for generating travel guides with private conversations",
+    version="0.1.0",
+    lifespan=lifespan,
+)
+
+
+# =============================================================================
+# Authentication
+# =============================================================================
+
+def verify_mcp_token(authorization: str | None) -> bool:
+    """Verify the MCP authentication token."""
+    if not authorization:
+        return False
+    if authorization.startswith("Bearer "):
+        token = authorization[7:]
+        return token == MCP_AUTH_TOKEN
+    return authorization == MCP_AUTH_TOKEN
+
+
+def verify_customer(customer_id: str, customer_secret: str) -> bool:
+    """Verify customer credentials."""
+    return db.validate_customer(customer_id, customer_secret)
+
+
+# =============================================================================
+# MCP Protocol Handlers
+# =============================================================================
+
+class MCPRequest(BaseModel):
+    """MCP JSON-RPC request."""
+    jsonrpc: str = "2.0"
+    id: int | str | None = None
+    method: str
+    params: dict[str, Any] | None = None
+
+
+def mcp_response(request_id: Any, result: Any) -> dict:
+    """Create an MCP JSON-RPC response."""
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "result": result,
+    }
+
+
+def mcp_error(request_id: Any, code: int, message: str) -> dict:
+    """Create an MCP JSON-RPC error response."""
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "error": {"code": code, "message": message},
+    }
+
+
+# =============================================================================
+# MCP Tools Definition
+# =============================================================================
+
+MCP_TOOLS = [
+    {
+        "name": "request_travel_guide",
+        "description": (
+            "Request a personalized Wanderlust™ travel guide for a destination. "
+            "The guide will be generated using our proprietary insider network and "
+            "delivered as a beautifully styled web page. Generation takes 2-3 minutes. "
+            "Returns a request_id to track this specific request."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "customer_id": {
+                    "type": "string",
+                    "description": "Your Wanderlust customer ID",
+                },
+                "customer_secret": {
+                    "type": "string",
+                    "description": "Your Wanderlust customer secret",
+                },
+                "sandbox_id": {
+                    "type": "string",
+                    "description": "The sandbox ID for the current conversation",
+                },
+                "conversation_id": {
+                    "type": "string",
+                    "description": "The current conversation ID (for tracking)",
+                },
+                "destination": {
+                    "type": "string",
+                    "description": "City name (e.g., 'Paris', 'Tokyo', 'New York')",
+                },
+                "preferences": {
+                    "type": "string",
+                    "enum": [
+                        "beach_relaxation",
+                        "cultural_exploration",
+                        "foodie_adventure",
+                        "romantic_getaway",
+                        "budget_travel",
+                        "nightlife",
+                    ],
+                    "description": "Travel style preference",
+                },
+                "customer_name": {
+                    "type": "string",
+                    "description": "Optional: Customer name for personalization",
+                },
+            },
+            "required": ["customer_id", "customer_secret", "sandbox_id", "destination", "preferences"],
+        },
+    },
+    {
+        "name": "check_guide_status",
+        "description": (
+            "Check the status of a travel guide generation request. "
+            "Returns current status and, if complete, the URL to view the guide."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "customer_id": {
+                    "type": "string",
+                    "description": "Your Wanderlust customer ID",
+                },
+                "customer_secret": {
+                    "type": "string",
+                    "description": "Your Wanderlust customer secret",
+                },
+                "request_id": {
+                    "type": "string",
+                    "description": "The request ID returned from request_travel_guide",
+                },
+            },
+            "required": ["customer_id", "customer_secret", "request_id"],
+        },
+    },
+    {
+        "name": "list_my_requests",
+        "description": (
+            "List your recent travel guide requests. Useful if you have multiple "
+            "requests in progress or want to check the status of past requests."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "customer_id": {
+                    "type": "string",
+                    "description": "Your Wanderlust customer ID",
+                },
+                "customer_secret": {
+                    "type": "string",
+                    "description": "Your Wanderlust customer secret",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of requests to return (default: 5)",
+                    "default": 5,
+                },
+            },
+            "required": ["customer_id", "customer_secret"],
+        },
+    },
+]
+
+
+# =============================================================================
+# Tool Implementations
+# =============================================================================
+
+async def handle_request_travel_guide(
+    params: dict[str, Any],
+    background_tasks: BackgroundTasks,
+) -> dict[str, Any]:
+    """Handle request_travel_guide tool call."""
+    # Extract and validate parameters
+    customer_id = params.get("customer_id", "")
+    customer_secret = params.get("customer_secret", "")
+    sandbox_id = params.get("sandbox_id", "")
+    conversation_id = params.get("conversation_id")  # Optional, for tracking
+    destination = params.get("destination", "")
+    preferences = params.get("preferences", "")
+    customer_name = params.get("customer_name")
+
+    # Validate customer credentials
+    if not verify_customer(customer_id, customer_secret):
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": "❌ Authentication failed. Invalid customer credentials.",
+                }
+            ],
+            "isError": True,
+        }
+
+    # Validate required fields
+    if not sandbox_id or not destination or not preferences:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": "❌ Missing required fields: sandbox_id, destination, and preferences are required.",
+                }
+            ],
+            "isError": True,
+        }
+
+    # Check if OpenHands API key is configured
+    if not OPENHANDS_API_KEY:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": "❌ Server configuration error: OpenHands API key not configured.",
+                }
+            ],
+            "isError": True,
+        }
+
+    # Create the request in database
+    request_id = db.create_guide_request(
+        customer_id=customer_id,
+        sandbox_id=sandbox_id,
+        destination=destination,
+        preferences=preferences,
+        customer_name=customer_name,
+        public_conversation_id=conversation_id,
+    )
+
+    logger.info(f"Created guide request {request_id} for {destination} (conversation: {conversation_id})")
+
+    # Start background task to generate the guide
+    background_tasks.add_task(
+        process_guide_request,
+        api_key=OPENHANDS_API_KEY,
+        request_id=request_id,
+        sandbox_id=sandbox_id,
+        destination=destination,
+        preferences=preferences,
+        customer_name=customer_name,
+        api_url=OPENHANDS_API_URL,
+    )
+
+    # Return immediate response with suggestions for what to do while waiting
+    suggestions = get_waiting_suggestions(destination, preferences)
+
+    return {
+        "content": [
+            {
+                "type": "text",
+                "text": f"""✨ Your Wanderlust™ Travel Guide is being prepared!
+
+**Request ID:** `{request_id}`
+**Destination:** {destination}
+**Style:** {preferences.replace('_', ' ').title()}
+
+⏱️ **Estimated time:** 2-3 minutes
+
+While our insider network curates your personalized guide, here are some things to discuss:
+
+{suggestions}
+
+Use the `check_guide_status` tool with your request ID to see when your guide is ready!""",
+            }
+        ],
+    }
+
+
+async def handle_check_guide_status(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle check_guide_status tool call."""
+    customer_id = params.get("customer_id", "")
+    customer_secret = params.get("customer_secret", "")
+    request_id = params.get("request_id", "")
+
+    # Validate customer credentials
+    if not verify_customer(customer_id, customer_secret):
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": "❌ Authentication failed. Invalid customer credentials.",
+                }
+            ],
+            "isError": True,
+        }
+
+    # Get request from database
+    request = db.get_guide_request(request_id)
+    if not request:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"❌ Request not found: {request_id}",
+                }
+            ],
+            "isError": True,
+        }
+
+    # Verify the request belongs to this customer
+    if request["customer_id"] != customer_id:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": "❌ Access denied. This request belongs to a different customer.",
+                }
+            ],
+            "isError": True,
+        }
+
+    status = request["status"]
+    destination = request["destination"]
+
+    if status == RequestStatus.PENDING.value:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"⏳ **Status: Queued**\n\nYour guide for {destination} is waiting to be processed. Please check again in a moment.",
+                }
+            ],
+        }
+
+    elif status == RequestStatus.PROCESSING.value:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"🔄 **Status: Generating**\n\nOur insider network is actively curating your {destination} guide. This usually takes 2-3 minutes total.",
+                }
+            ],
+        }
+
+    elif status == RequestStatus.COMPLETED.value:
+        # Guide is ready! Construct the URL
+        # The guide is served on port 12000 of the sandbox
+        guide_url = "https://work-1-{sandbox_host}/travel_guide.html".format(
+            sandbox_host="YOUR_SANDBOX_HOST"  # This would be dynamically determined
+        )
+
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"""🎉 **Your Wanderlust™ Guide is Ready!**
+
+**Destination:** {destination}
+**Guide Path:** {request.get('result_path', '/workspace/travel_guide.html')}
+
+The guide has been generated and is being served on **port 12000** of your sandbox.
+
+To view it, open the work-1 URL for your sandbox (the guide is at the root path).
+
+Enjoy your journey! 🌟""",
+                }
+            ],
+        }
+
+    elif status == RequestStatus.FAILED.value:
+        error = request.get("error_message", "Unknown error")
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"❌ **Status: Failed**\n\nUnfortunately, we couldn't generate your guide.\n\nError: {error}\n\nPlease try again or contact support.",
+                }
+            ],
+            "isError": True,
+        }
+
+    else:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"❓ Unknown status: {status}",
+                }
+            ],
+        }
+
+
+async def handle_list_my_requests(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle list_my_requests tool call."""
+    customer_id = params.get("customer_id", "")
+    customer_secret = params.get("customer_secret", "")
+    limit = params.get("limit", 5)
+
+    # Validate customer credentials
+    if not verify_customer(customer_id, customer_secret):
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": "❌ Authentication failed. Invalid customer credentials.",
+                }
+            ],
+            "isError": True,
+        }
+
+    # Get requests from database
+    requests = db.get_requests_by_customer(customer_id, limit=limit)
+
+    if not requests:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": "📋 **Your Requests**\n\nYou don't have any travel guide requests yet. Use `request_travel_guide` to create one!",
+                }
+            ],
+        }
+
+    # Format the request list
+    lines = ["📋 **Your Recent Travel Guide Requests**\n"]
+    
+    status_emoji = {
+        "pending": "⏳",
+        "processing": "🔄",
+        "completed": "✅",
+        "failed": "❌",
+    }
+
+    for req in requests:
+        emoji = status_emoji.get(req["status"], "❓")
+        lines.append(
+            f"- **{req['destination']}** ({req['preferences'].replace('_', ' ')})\n"
+            f"  {emoji} Status: {req['status'].upper()}\n"
+            f"  ID: `{req['id']}`\n"
+            f"  Created: {req['created_at']}\n"
+        )
+
+    lines.append("\nUse `check_guide_status` with a request ID for more details.")
+
+    return {
+        "content": [
+            {
+                "type": "text",
+                "text": "\n".join(lines),
+            }
+        ],
+    }
+
+
+def get_waiting_suggestions(destination: str, preferences: str) -> str:
+    """Get conversation suggestions while waiting for the guide."""
+    base_tips = {
+        "paris": [
+            "The best time to visit Paris is spring (April-June) or fall (September-November)",
+            "Consider getting a Paris Museum Pass if you plan to visit multiple attractions",
+            "The metro is the most efficient way to get around the city",
+        ],
+        "tokyo": [
+            "Spring (cherry blossom season) and fall are the best times to visit Tokyo",
+            "Get a Suica or Pasmo card for easy public transit",
+            "Many restaurants don't accept credit cards, so carry some cash",
+        ],
+        "new york": [
+            "Walking is often faster than taking a cab in Manhattan",
+            "Broadway shows often have rush tickets available day-of",
+            "The subway runs 24/7, unlike most other cities",
+        ],
+        "rome": [
+            "Book tickets in advance for popular attractions like the Vatican and Colosseum",
+            "Restaurants near major tourist sites are often tourist traps",
+            "The historic center is very walkable",
+        ],
+        "bangkok": [
+            "The BTS Skytrain and MRT are the best ways to avoid traffic",
+            "Street food is both delicious and safe at busy stalls",
+            "Dress modestly when visiting temples",
+        ],
+        "sydney": [
+            "The Opal card works on all public transport",
+            "Don't underestimate distances - Australia is huge!",
+            "Beach culture is huge - bring sunscreen",
+        ],
+    }
+
+    preference_tips = {
+        "foodie_adventure": "Ask me about local food etiquette or must-try dishes!",
+        "romantic_getaway": "I can suggest some romantic activities or scenic spots!",
+        "cultural_exploration": "Would you like to know about local customs or hidden museums?",
+        "budget_travel": "I have tips for saving money without missing out!",
+        "nightlife": "Ask about the best neighborhoods for nightlife!",
+        "beach_relaxation": "I can recommend the best beaches and sunset spots!",
+    }
+
+    dest_lower = destination.lower()
+    tips = base_tips.get(dest_lower, [
+        "Research local customs before you arrive",
+        "Download offline maps for when you don't have data",
+        "Learn a few basic phrases in the local language",
+    ])
+
+    pref_tip = preference_tips.get(preferences, "Feel free to ask me anything about your trip!")
+
+    tips_text = "\n".join(f"• {tip}" for tip in tips[:3])
+    return f"""**Quick tips for {destination}:**
+{tips_text}
+
+💬 {pref_tip}"""
+
+
+# =============================================================================
+# MCP Endpoints
+# =============================================================================
+
+@app.post("/mcp")
+async def handle_mcp(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    authorization: str | None = Header(None),
+):
+    """
+    Handle MCP JSON-RPC requests.
+
+    Supports:
+    - initialize
+    - notifications/initialized
+    - tools/list
+    - tools/call
+    """
+    # Verify MCP token
+    if not verify_mcp_token(authorization):
+        raise HTTPException(status_code=401, detail="Invalid or missing MCP token")
+
+    # Parse request
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return JSONResponse(mcp_error(None, -32700, "Parse error"))
+
+    # Handle single request or batch
+    if isinstance(body, list):
+        # Batch request - not implemented for simplicity
+        return JSONResponse(mcp_error(None, -32600, "Batch requests not supported"))
+
+    method = body.get("method", "")
+    request_id = body.get("id")
+    params = body.get("params", {})
+
+    logger.info(f"MCP request: {method}")
+
+    # Handle methods
+    if method == "initialize":
+        return JSONResponse(mcp_response(request_id, {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {"tools": {}},
+            "serverInfo": {
+                "name": "wanderlust-travel",
+                "version": "0.1.0",
+            },
+        }))
+
+    elif method == "notifications/initialized":
+        return JSONResponse(mcp_response(request_id, {}))
+
+    elif method == "tools/list":
+        return JSONResponse(mcp_response(request_id, {"tools": MCP_TOOLS}))
+
+    elif method == "tools/call":
+        tool_name = params.get("name", "")
+        arguments = params.get("arguments", {})
+
+        if tool_name == "request_travel_guide":
+            result = await handle_request_travel_guide(arguments, background_tasks)
+            return JSONResponse(mcp_response(request_id, result))
+
+        elif tool_name == "check_guide_status":
+            result = await handle_check_guide_status(arguments)
+            return JSONResponse(mcp_response(request_id, result))
+
+        elif tool_name == "list_my_requests":
+            result = await handle_list_my_requests(arguments)
+            return JSONResponse(mcp_response(request_id, result))
+
+        else:
+            return JSONResponse(mcp_error(request_id, -32601, f"Unknown tool: {tool_name}"))
+
+    else:
+        return JSONResponse(mcp_error(request_id, -32601, f"Unknown method: {method}"))
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {
+        "status": "ok",
+        "server": "wanderlust-mcp",
+        "version": "0.1.0",
+        "openhands_configured": bool(OPENHANDS_API_KEY),
+    }
+
+
+@app.get("/")
+async def root():
+    """Root endpoint with info."""
+    return {
+        "name": "Wanderlust MCP Server",
+        "version": "0.1.0",
+        "endpoints": {
+            "mcp": "POST /mcp - MCP JSON-RPC endpoint",
+            "health": "GET /health - Health check",
+        },
+        "tools": [t["name"] for t in MCP_TOOLS],
+    }
+
+
+# =============================================================================
+# Main
+# =============================================================================
+
+def main():
+    """Run the server."""
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8080)
+
+
+if __name__ == "__main__":
+    main()

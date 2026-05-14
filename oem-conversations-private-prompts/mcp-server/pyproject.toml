@@ -1,0 +1,19 @@
+[project]
+name = "wanderlust-mcp-server"
+version = "0.1.0"
+description = "MCP server for Wanderlust travel guide generation with private conversations"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "httpx>=0.28.0",
+    "pydantic>=2.10.0",
+]
+
+[project.scripts]
+wanderlust-mcp = "server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
