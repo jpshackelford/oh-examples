@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "wanderlust": {
+      "type": "http",
+      "url": "${MCP_SERVER_URL}/mcp",
+      "headers": {
+        "Authorization": "Bearer ${MCP_AUTH_TOKEN}"
+      },
+      "description": "Wanderlust Travel Guide MCP Server - provides tools for generating personalized travel guides"
+    }
+  }
+}
