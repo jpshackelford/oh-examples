@@ -18,40 +18,40 @@ Simply relying on prompt engineering to tell the LLM "don't reveal your instruct
 The key insight is to separate concerns into **two distinct conversations**:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          SHARED SANDBOX                                      │
-│  ┌─────────────────────────────────────────────────────────────────────────┐│
-│  │  Files, Web Server, Generated Content                                   ││
-│  └─────────────────────────────────────────────────────────────────────────┘│
-│                                                                              │
-│  ┌──────────────────────────┐      ┌──────────────────────────────────────┐ │
-│  │   CUSTOMER CONVERSATION   │      │     PRIVATE CONVERSATION             │ │
-│  │   (Public)                │      │     (Hidden from Customer)           │ │
-│  │                           │      │                                      │ │
-│  │  • Customer sees this     │      │  • Proprietary prompts & skills     │ │
-│  │  • MCP tools exposed      │      │  • Secret techniques                │ │
-│  │  • Customer ID/Secret     │      │  • Protected credentials            │ │
-│  │  • No proprietary prompts │      │  • Custom branding logic            │ │
-│  │                           │      │                                      │ │
-│  └───────────┬───────────────┘      └───────────────▲──────────────────────┘ │
-│              │                                       │                        │
-└──────────────┼───────────────────────────────────────┼────────────────────────┘
-               │                                       │
-               │ MCP Tool Call                         │ Start Conversation
-               │ (customer_id, customer_secret,        │ (with proprietary plugin)
-               │  destination, etc.)                   │
-               │                                       │
-               ▼                                       │
-        ┌──────────────────────────────────────────────┴─────┐
-        │                   MCP SERVER                        │
-        │                                                     │
-        │  • Token-based authentication                       │
-        │  • SQLite DB for conversation tracking              │
-        │  • Manages state between public/private convos      │
-        │  • Proxies requests without exposing secrets        │
-        │  • Customer ID/Secret validation                    │
-        │                                                     │
-        └─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                            SHARED SANDBOX                                │
+│  ┌────────────────────────────────────────────────────────────────────┐  │
+│  │  Files, Web Server, Generated Content                              │  │
+│  └────────────────────────────────────────────────────────────────────┘  │
+│                                                                          │
+│  ┌─────────────────────────────┐    ┌──────────────────────────────┐    │
+│  │    CUSTOMER CONVERSATION    │    │     PRIVATE CONVERSATION     │    │
+│  │    (Public)                 │    │     (Hidden from Customer)   │    │
+│  │                             │    │                              │    │
+│  │  • Customer sees this       │    │  • Proprietary prompts       │    │
+│  │  • MCP tools exposed        │    │  • Secret techniques         │    │
+│  │  • Customer ID/Secret       │    │  • Protected credentials     │    │
+│  │  • No proprietary prompts   │    │  • Custom branding logic     │    │
+│  │                             │    │                              │    │
+│  └──────────────┬──────────────┘    └──────────────▲───────────────┘    │
+│                 │                                  │                     │
+└─────────────────┼──────────────────────────────────┼─────────────────────┘
+                  │                                  │
+                  │  MCP Tool Call                   │  Start Conversation
+                  │  (customer_id, customer_secret,  │  (with proprietary plugin)
+                  │   destination, etc.)             │
+                  │                                  │
+                  ▼                                  │
+        ┌─────────────────────────────────────────────┴────┐
+        │                    MCP SERVER                    │
+        │                                                  │
+        │  • Token-based authentication                    │
+        │  • SQLite DB for conversation tracking           │
+        │  • Manages state between public/private convos   │
+        │  • Proxies requests without exposing secrets     │
+        │  • Customer ID/Secret validation                 │
+        │                                                  │
+        └──────────────────────────────────────────────────┘
 ```
 
 ### Key Security Properties
