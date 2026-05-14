@@ -106,19 +106,29 @@ The customer sees only:
 
 ```
 oem-conversations-private-prompts/
-├── README.md                 # This file
-├── entry-point/              # Demo script to showcase the full flow
-│   └── demo.py               # Starts a conversation, tries to extract secrets
-├── launch-plugin/            # Plugin for customer-facing conversation
-│   └── plugin.py             # Exposes MCP tools, handles customer interaction
-├── proprietary-plugin/       # Plugin for private conversation
-│   └── plugin.py             # Secret prompts, styling instructions
-│   └── uncle_mortimers_secrets.json  # The "secret sauce"
-└── mcp-server/               # The proxy layer
-    ├── server.py             # FastAPI MCP server
-    ├── auth.py               # Token validation
-    ├── database.py           # SQLite conversation tracking
-    └── conversation_manager.py  # Starts/monitors private conversations
+├── README.md                        # This file
+│
+├── entry-point/                     # Demo script to showcase the full flow
+│   ├── demo.py                      # Creates sandbox, runs demo, tries extractions
+│   ├── pyproject.toml               # Dependencies
+│   └── README.md                    # Usage instructions
+│
+├── launch-plugin/                   # Plugin for customer-facing conversation
+│   ├── SKILL.md                     # Customer interaction guidelines
+│   ├── mcp.json                     # MCP config with ${VAR} expansion
+│   └── README.md                    # Plugin documentation
+│
+├── proprietary-plugin/              # Plugin for private conversation (THE SECRETS!)
+│   ├── SKILL.md                     # Wanderlust™ Brand Format, Vibes-to-Venue Protocol
+│   ├── uncle_mortimers_secrets.json # Secret restaurant network database
+│   └── README.md                    # Warning: proprietary!
+│
+└── mcp-server/                      # The secure proxy layer
+    ├── server.py                    # FastAPI HTTP MCP server
+    ├── database.py                  # SQLite request tracking
+    ├── conversation_manager.py      # OpenHands API for private conversations
+    ├── pyproject.toml               # Dependencies
+    └── README.md                    # API documentation
 ```
 
 ## Running the Demo
