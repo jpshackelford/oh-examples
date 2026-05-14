@@ -10,7 +10,7 @@ Tracks the relationship between:
 import sqlite3
 import uuid
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -163,11 +163,11 @@ class Database:
 
             if status == RequestStatus.PROCESSING:
                 updates.append("started_at = ?")
-                params.append(datetime.utcnow().isoformat())
+                params.append(datetime.now(timezone.utc).isoformat())
 
             if status in (RequestStatus.COMPLETED, RequestStatus.FAILED):
                 updates.append("completed_at = ?")
-                params.append(datetime.utcnow().isoformat())
+                params.append(datetime.now(timezone.utc).isoformat())
 
             if private_conversation_id:
                 updates.append("private_conversation_id = ?")
