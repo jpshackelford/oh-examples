@@ -13,26 +13,35 @@ When building AI agent products, you often need to:
 
 Simply relying on prompt engineering to tell the LLM "don't reveal your instructions" is unreliable—prompt injection attacks and creative interrogation can bypass these defenses.
 
-## The Solution: Two-Conversation Architecture
+## The Solution: Two-Conversation Architecture with Direct Callback
 
-The key insight is to separate concerns into **two distinct conversations** that share the same sandbox:
+The key insight is to separate concerns into **two distinct conversations** that share the same sandbox, using a **callback pattern** for reliable completion notification:
 
 ```
 ┌─────────────────┐          ┌─────────────┐          ┌─────────────────────┐
 │   Customer      │   MCP    │             │   API    │     Private         │
 │   Conversation  │◄────────►│  MCP Server │◄────────►│   Conversation      │
 │                 │          │             │          │                     │
-│  • Interacts    │          │  • Routes   │          │  • Generates HTML   │
-│    with user    │          │    requests │          │  • Starts server    │
-│  • Gets URL     │          │  • Stores   │          │  • Returns URL      │
-│  • Shows link   │          │    state    │          │  • Has secrets      │
+│  1. Request     │─────────►│ 2. Start    │─────────►│ 3. Generate guide   │
+│     guide       │          │    private  │          │    Start server     │
+│                 │          │    conv     │          │                     │
+│  6. Get URL     │◄─────────│ 5. Store    │◄─────────│ 4. POST /guide-done │
+│     Show link   │          │    URL      │          │    {request_id,url} │
 └─────────────────┘          └─────────────┘          └─────────────────────┘
        │                                                       │
        │                    SHARED SANDBOX                     │
        │              (Files, Web Server on :12000)            │
        └───────────────────────────────────────────────────────┘
-                    Web server managed by private conv
 ```
+
+### Why Callback Instead of Polling?
+
+The private conversation **directly notifies** the MCP server when done via HTTP callback:
+
+- **Reliable**: No parsing conversation events or looking for markers
+- **Simple**: Private conversation just calls `curl` with the result URL
+- **Efficient**: No polling loop, instant notification
+- **Clean**: Completion logic stays with the private conversation
 
 ### Detailed Architecture
 
@@ -51,27 +60,29 @@ The key insight is to separate concerns into **two distinct conversations** that
 │  │  • MCP tools exposed       │    │  • Secret techniques           │ │
 │  │  • Customer ID/Secret      │    │  • Protected credentials       │ │
 │  │  • No proprietary prompts  │    │  • Custom branding logic       │ │
-│  │  • Just presents URL       │    │  • Hosts web server (:12000)   │ │
-│  │                            │    │  • Returns full public URL     │ │
-│  └─────────────┬──────────────┘    └────────────────▲───────────────┘ │
-└────────────────┼───────────────────────────────────┼──────────────────┘
-                 │                                   │
-                 │ MCP Tool Call                     │ Start Conversation
-                 │ (customer_id, customer_secret,    │ (with proprietary plugin)
-                 │  destination, etc.)               │
-                 │                                   │
-                 ▼                                   │
-          ┌──────────────────────────────────────────┴───┐
-          │                  MCP SERVER                  │
-          │                                              │
-          │  • Token-based authentication                │
-          │  • SQLite DB for conversation tracking       │
-          │  • Manages state between public/private      │
-          │  • Proxies requests without exposing secrets │
-          │  • Customer ID/Secret validation             │
-          │  • Extracts and stores result URL            │
-          │                                              │
-          └──────────────────────────────────────────────┘
+│  │  • Polls for result URL    │    │  • Hosts web server (:12000)   │ │
+│  │  • Presents guide link     │    │  • Calls /guide-complete API   │ │
+│  └─────────────┬──────────────┘    └─────────────────────────────────┘ │
+└────────────────┼─────────────────────────────────────────────────────┘
+                 │
+                 │ MCP Tool Calls
+                 │ • request_travel_guide → starts private conv
+                 │ • check_guide_status → returns URL when ready
+                 │
+                 ▼
+          ┌──────────────────────────────────────────────────────────┐
+          │                       MCP SERVER                         │
+          │                                                          │
+          │  Endpoints:                                              │
+          │  ├─ POST /mcp           MCP protocol (SSE transport)    │
+          │  ├─ POST /projects      Create project mapping          │
+          │  └─ POST /guide-complete  Callback from private conv    │
+          │                                                          │
+          │  • Token-based authentication (all endpoints)            │
+          │  • SQLite DB for request tracking                        │
+          │  • Starts private conversations via OpenHands API        │
+          │  • Receives callback with guide URL when ready           │
+          └──────────────────────────────────────────────────────────┘
 ```
 
 ### Important: Web Server Ownership
@@ -233,7 +244,7 @@ CREATE TABLE guide_requests (
     destination TEXT NOT NULL,
     preferences TEXT NOT NULL,
     status TEXT DEFAULT 'pending',  -- pending, processing, completed, failed
-    result_url TEXT,  -- Full public URL to the guide (served by private conversation)
+    result_url TEXT,  -- Set by /guide-complete callback
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP
 );
@@ -243,32 +254,49 @@ CREATE TABLE guide_requests (
 
 ```python
 @tool
-async def generate_travel_guide(
-    customer_id: str,
-    customer_secret: str,
-    destination: str,
-    preferences: dict
-) -> dict:
+async def request_travel_guide(destination: str, preferences: str) -> dict:
     """
-    Generates a personalized travel guide using proprietary techniques.
-    
-    Returns:
-        {
-            "status": "processing",
-            "estimated_time": "3 minutes",
-            "suggestions": "While you wait, here are some general tips...",
-            "check_result_tool": "check_travel_guide_status"
-        }
+    Requests a personalized travel guide using proprietary techniques.
+    Returns immediately with a request_id for status checking.
+    """
+
+@tool
+async def check_guide_status(request_id: str) -> dict:
+    """
+    Check the status of a guide request.
+    Returns the URL when ready (set by private conversation callback).
     """
 ```
 
-### Private Conversation Initialization
+### Callback Endpoint
 
-The MCP server uses the OpenHands API to start a new conversation with:
-- The same `runtime_id` (shared sandbox!)
+```python
+@app.post("/guide-complete")
+async def guide_complete(request: GuideCompleteRequest):
+    """
+    Called by the private conversation when the guide is ready.
+
+    Request body:
+    {
+        "request_id": "abc-123",
+        "guide_url": "https://work-1-xxx.prod-runtime.all-hands.dev/travel_guide.html"
+    }
+    """
+```
+
+### Private Conversation Flow
+
+The MCP server starts a private conversation with:
+- The same `sandbox_id` (shared filesystem!)
 - The proprietary plugin loaded
-- Customer context passed as initial prompt
-- No customer-accessible interface
+- Callback URL and auth token in the initial prompt
+
+The private conversation:
+1. Generates the HTML guide using proprietary prompts
+2. Starts a web server on port 12000
+3. Discovers its public URL (from `$SANDBOX_RUNTIME_URL`)
+4. Calls `/guide-complete` with the URL
+5. Customer conversation can now retrieve the result
 
 ## Contributing
 
@@ -284,5 +312,5 @@ MIT - Feel free to use this pattern in your own projects!
 
 ---
 
-*"The best-kept secret is the one that never enters the conversation."*  
+*"The best-kept secret is the one that never enters the conversation."*
 — Ancient OpenHands Proverb (just made up)

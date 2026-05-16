@@ -33,6 +33,9 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from database import Database, RequestStatus
+import logging
+
+logger = logging.getLogger(__name__)
 from conversation_manager import process_guide_request
 
 
@@ -50,6 +53,9 @@ logger = logging.getLogger(__name__)
 OPENHANDS_API_KEY = os.environ.get("OPENHANDS_API_KEY", "")
 OPENHANDS_API_URL = os.environ.get("OPENHANDS_API_URL", "https://app.all-hands.dev/api")
 MCP_AUTH_TOKEN = os.environ.get("MCP_AUTH_TOKEN", "wanderlust-mcp-secret-token")
+# MCP_SERVER_PUBLIC_URL is the public URL where the MCP server can be reached
+# Used for callbacks from private conversations
+MCP_SERVER_PUBLIC_URL = os.environ.get("MCP_SERVER_PUBLIC_URL", "")
 
 # Database
 db = Database()
@@ -66,6 +72,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"OpenHands API URL: {OPENHANDS_API_URL}")
     logger.info(f"MCP Auth Token configured: {'Yes' if MCP_AUTH_TOKEN else 'No'}")
     logger.info(f"OpenHands API Key configured: {'Yes' if OPENHANDS_API_KEY else 'No'}")
+    logger.info(f"MCP Server Public URL: {MCP_SERVER_PUBLIC_URL or '(not set)'}")
     yield
     logger.info("Wanderlust MCP Server shutting down...")
 
@@ -297,6 +304,9 @@ async def handle_request_travel_guide(
 
     logger.info(f"Created guide request {request_id} for {destination} (project: {project_id}, sandbox: {sandbox_id})")
 
+    # Build callback URL for private conversation to call when done
+    callback_url = f"{MCP_SERVER_PUBLIC_URL}/guide-complete" if MCP_SERVER_PUBLIC_URL else ""
+
     # Start background task to generate the guide
     background_tasks.add_task(
         process_guide_request,
@@ -307,6 +317,8 @@ async def handle_request_travel_guide(
         preferences=preferences,
         customer_name=customer_name,
         api_url=OPENHANDS_API_URL,
+        callback_url=callback_url,
+        auth_token=MCP_AUTH_TOKEN,
     )
 
     # Return immediate response with suggestions for what to do while waiting
@@ -886,6 +898,69 @@ async def deactivate_project(
 
     logger.info(f"Deactivated project {project_id}")
     return {"status": "deactivated", "project_id": project_id}
+
+
+# =============================================================================
+# Guide Completion Callback (called by private conversation)
+# =============================================================================
+
+class GuideCompleteRequest(BaseModel):
+    """Request body for guide completion callback."""
+    request_id: str
+    guide_url: str
+    destination: str | None = None
+
+
+@app.post("/guide-complete")
+async def guide_complete(
+    request: GuideCompleteRequest,
+    authorization: str | None = Header(None),
+):
+    """
+    Callback endpoint for private conversation to signal guide completion.
+    
+    Called by the proprietary plugin when the travel guide is ready:
+    - Updates the guide request status to 'completed'
+    - Stores the full public URL
+    
+    The private conversation calls this directly instead of relying on
+    polling/detection logic.
+    """
+    # Verify MCP token (same auth as other endpoints)
+    if not verify_mcp_token(authorization):
+        raise HTTPException(status_code=401, detail="Invalid or missing auth token")
+    
+    # Look up the request
+    guide_request = db.get_guide_request(request.request_id)
+    if not guide_request:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Guide request '{request.request_id}' not found"
+        )
+    
+    # Update status to completed with the URL
+    success = db.update_guide_request_status(
+        request.request_id,
+        RequestStatus.COMPLETED,
+        result_url=request.guide_url,
+    )
+    
+    if not success:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to update guide request status"
+        )
+    
+    logger.info(
+        f"Guide complete: request={request.request_id}, "
+        f"url={request.guide_url}"
+    )
+    
+    return {
+        "status": "ok",
+        "request_id": request.request_id,
+        "guide_url": request.guide_url,
+    }
 
 
 # =============================================================================
