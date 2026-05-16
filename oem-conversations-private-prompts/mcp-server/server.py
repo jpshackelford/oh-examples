@@ -630,7 +630,8 @@ async def process_mcp_request(
         # This works around the SDK not expanding secrets in MCP tool params
         if customer_id:
             arguments["customer_id"] = customer_id
-            arguments["customer_secret"] = customer_id  # Same as customer_id for this demo
+            # Secret convention for demo: "{customer_id}-secret"
+            arguments["customer_secret"] = f"{customer_id}-secret"
         if project_id:
             arguments["project_id"] = project_id
 
