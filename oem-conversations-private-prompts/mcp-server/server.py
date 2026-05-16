@@ -681,14 +681,15 @@ async def handle_mcp_sse(
 
     async def event_generator() -> AsyncGenerator[str, None]:
         try:
-            # Send session ID as first event
-            yield f"event: session\ndata: {json.dumps({'session_id': session_id})}\n\n"
+            # Send endpoint event with session ID - tells client where to POST
+            # This follows the MCP SSE transport spec
+            yield f"event: endpoint\ndata: /mcp?session={session_id}\n\n"
 
             while True:
                 try:
                     # Wait for messages to send to client
                     message = await asyncio.wait_for(client_queue.get(), timeout=30.0)
-                    yield f"data: {json.dumps(message)}\n\n"
+                    yield f"event: message\ndata: {json.dumps(message)}\n\n"
                 except asyncio.TimeoutError:
                     # Send keepalive
                     yield ": keepalive\n\n"
@@ -715,6 +716,7 @@ async def handle_mcp(
     request: Request,
     background_tasks: BackgroundTasks,
     authorization: str | None = Header(None),
+    session: str | None = None,
 ):
     """
     Handle MCP JSON-RPC requests via POST.
@@ -724,6 +726,9 @@ async def handle_mcp(
     - notifications/initialized
     - tools/list
     - tools/call
+    
+    If session parameter is provided, responses are sent via SSE.
+    Otherwise, response is returned directly (for simple HTTP mode).
     """
     # Verify MCP token
     if not verify_mcp_token(authorization):
@@ -741,6 +746,16 @@ async def handle_mcp(
         return JSONResponse(mcp_error(None, -32600, "Batch requests not supported"))
 
     response = await process_mcp_request(body, background_tasks)
+    
+    # If session provided, send response via SSE channel
+    if session:
+        async with sse_lock:
+            if session in sse_clients:
+                await sse_clients[session].put(response)
+                # Return 202 Accepted - response sent via SSE
+                return JSONResponse({"status": "accepted"}, status_code=202)
+    
+    # Otherwise return response directly
     return JSONResponse(response)
 
 
