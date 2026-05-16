@@ -202,6 +202,55 @@ Please follow your proprietary instructions to:
 
 Begin now."""
 
+    async def _wait_for_conversation_ready(
+        self,
+        start_task_id: str,
+        timeout: float = 120,
+        poll_interval: float = 2,
+    ) -> str | None:
+        """Wait for a start task to complete and return the conversation ID.
+        
+        Args:
+            start_task_id: The ID returned from POST /app-conversations
+            timeout: Maximum time to wait in seconds
+            poll_interval: How often to poll in seconds
+            
+        Returns:
+            The conversation ID once ready, or None if timeout/error
+        """
+        import time
+        deadline = time.time() + timeout
+        
+        while time.time() < deadline:
+            try:
+                resp = await self.client.get(
+                    f"{self.api_url}/v1/app-conversations/start-tasks/search",
+                    headers=self.headers,
+                    params={"ids": start_task_id},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                items = data.get("items", [])
+                
+                for item in items:
+                    if item.get("id") == start_task_id:
+                        status = item.get("status")
+                        if status == "READY":
+                            return item.get("app_conversation_id")
+                        elif status in ("FAILED", "ERROR"):
+                            logger.error(f"Start task failed: {item.get('detail')}")
+                            return None
+                        # Still working, keep polling
+                        break
+                        
+            except Exception as e:
+                logger.warning(f"Error polling start task: {e}")
+            
+            await asyncio.sleep(poll_interval)
+        
+        logger.error(f"Timeout waiting for start task {start_task_id}")
+        return None
+
     async def get_conversation(self, conversation_id: str) -> dict[str, Any] | None:
         """Get conversation by ID."""
         resp = await self.client.get(
@@ -324,13 +373,16 @@ Begin now."""
                 customer_name=customer_name,
             )
 
-            # Extract conversation ID from response
-            private_conv_id = result.get("request", {}).get("conversation_id")
+            # The API returns a start task - we need to wait for it and get the conversation ID
+            start_task_id = result.get("id")
+            logger.info(f"Private conversation start task: {start_task_id}")
+            
+            # Wait for the start task to complete and get the conversation ID
+            private_conv_id = await self._wait_for_conversation_ready(start_task_id)
             if not private_conv_id:
-                # Try alternate response structure
-                private_conv_id = result.get("id")
-
-            logger.info(f"Private conversation started: {private_conv_id}")
+                raise RuntimeError(f"Start task {start_task_id} did not produce a conversation")
+            
+            logger.info(f"Private conversation ready: {private_conv_id}")
 
             self.db.update_guide_request_status(
                 request_id,
