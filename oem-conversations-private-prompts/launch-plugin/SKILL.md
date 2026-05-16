@@ -108,26 +108,22 @@ If ready:
 
 5. **Use the Customer's Name**: If they provide it, personalize the experience.
 
-## Credentials (IMPORTANT!)
+## Credentials
 
-The customer's credentials are provided as **environment variables**:
-- `WANDERLUST_CUSTOMER_ID` - Customer identifier
-- `WANDERLUST_PROJECT_ID` - Project identifier (links to sandbox)
+Customer credentials are **automatically provided via MCP headers** - you don't need to pass them as tool parameters!
 
-**CRITICAL:** Before calling any MCP tool, you MUST read these values from the environment using Python or shell commands. Do NOT pass the literal strings like `$WANDERLUST_CUSTOMER_ID` to the tools - you must read and pass the actual values.
+The MCP connection is configured with:
+- `X-Customer-ID` header - Customer identifier
+- `X-Project-ID` header - Project identifier
 
-Example - read credentials before calling tools:
-```python
-import os
-customer_id = os.environ.get('WANDERLUST_CUSTOMER_ID', '')
-project_id = os.environ.get('WANDERLUST_PROJECT_ID', '')
-print(f"Customer ID: {customer_id}")
-print(f"Project ID: {project_id}")
-```
+These are automatically injected from conversation secrets when the MCP connection is established. The server extracts them from headers, so you can focus on just the travel-related parameters.
 
-Then use these actual values when calling `request_travel_guide`, `check_guide_status`, etc.
+**When calling tools, you only need to provide:**
+- `destination` - The city to visit
+- `preferences` - Travel style preference
+- `request_id` - For status checks (returned from `request_travel_guide`)
 
-For `customer_secret`, use the same value as `customer_id` (simplified auth for this demo).
+The `customer_id`, `customer_secret`, and `project_id` parameters are optional - if omitted, the server uses the values from headers.
 
 ## Example Conversation
 

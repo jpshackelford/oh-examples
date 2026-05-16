@@ -143,18 +143,6 @@ MCP_TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "customer_id": {
-                    "type": "string",
-                    "description": "Your Wanderlust customer ID",
-                },
-                "customer_secret": {
-                    "type": "string",
-                    "description": "Your Wanderlust customer secret",
-                },
-                "project_id": {
-                    "type": "string",
-                    "description": "Your Wanderlust project ID (provided by the service)",
-                },
                 "destination": {
                     "type": "string",
                     "description": "City name (e.g., 'Paris', 'Tokyo', 'New York')",
@@ -176,7 +164,7 @@ MCP_TOOLS = [
                     "description": "Optional: Customer name for personalization",
                 },
             },
-            "required": ["customer_id", "customer_secret", "project_id", "destination", "preferences"],
+            "required": ["destination", "preferences"],
         },
     },
     {
@@ -188,20 +176,12 @@ MCP_TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "customer_id": {
-                    "type": "string",
-                    "description": "Your Wanderlust customer ID",
-                },
-                "customer_secret": {
-                    "type": "string",
-                    "description": "Your Wanderlust customer secret",
-                },
                 "request_id": {
                     "type": "string",
                     "description": "The request ID returned from request_travel_guide",
                 },
             },
-            "required": ["customer_id", "customer_secret", "request_id"],
+            "required": ["request_id"],
         },
     },
     {
@@ -213,21 +193,13 @@ MCP_TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "customer_id": {
-                    "type": "string",
-                    "description": "Your Wanderlust customer ID",
-                },
-                "customer_secret": {
-                    "type": "string",
-                    "description": "Your Wanderlust customer secret",
-                },
                 "limit": {
                     "type": "integer",
                     "description": "Maximum number of requests to return (default: 5)",
                     "default": 5,
                 },
             },
-            "required": ["customer_id", "customer_secret"],
+            "required": [],
         },
     },
 ]
@@ -613,8 +585,20 @@ sse_clients: dict[str, asyncio.Queue] = {}
 sse_lock = asyncio.Lock()
 
 
-async def process_mcp_request(body: dict, background_tasks: BackgroundTasks) -> dict:
-    """Process an MCP JSON-RPC request and return the response."""
+async def process_mcp_request(
+    body: dict, 
+    background_tasks: BackgroundTasks,
+    customer_id: str | None = None,
+    project_id: str | None = None,
+) -> dict:
+    """Process an MCP JSON-RPC request and return the response.
+    
+    Args:
+        body: JSON-RPC request body
+        background_tasks: FastAPI background tasks
+        customer_id: Customer ID from X-Customer-ID header (preferred) or tool params
+        project_id: Project ID from X-Project-ID header (preferred) or tool params
+    """
     method = body.get("method", "")
     request_id = body.get("id")
     params = body.get("params", {})
@@ -641,6 +625,14 @@ async def process_mcp_request(body: dict, background_tasks: BackgroundTasks) -> 
     elif method == "tools/call":
         tool_name = params.get("name", "")
         arguments = params.get("arguments", {})
+        
+        # Inject credentials from headers into arguments (headers take precedence)
+        # This works around the SDK not expanding secrets in MCP tool params
+        if customer_id:
+            arguments["customer_id"] = customer_id
+            arguments["customer_secret"] = customer_id  # Same as customer_id for this demo
+        if project_id:
+            arguments["project_id"] = project_id
 
         if tool_name == "request_travel_guide":
             result = await handle_request_travel_guide(arguments, background_tasks)
@@ -716,6 +708,8 @@ async def handle_mcp(
     request: Request,
     background_tasks: BackgroundTasks,
     authorization: str | None = Header(None),
+    x_customer_id: str | None = Header(None, alias="X-Customer-ID"),
+    x_project_id: str | None = Header(None, alias="X-Project-ID"),
     session: str | None = None,
 ):
     """
@@ -726,6 +720,10 @@ async def handle_mcp(
     - notifications/initialized
     - tools/list
     - tools/call
+    
+    Customer credentials can be passed via headers (recommended):
+    - X-Customer-ID: Customer identifier
+    - X-Project-ID: Project identifier
     
     If session parameter is provided, responses are sent via SSE.
     Otherwise, response is returned directly (for simple HTTP mode).
@@ -745,7 +743,16 @@ async def handle_mcp(
         # Batch request - not implemented for simplicity
         return JSONResponse(mcp_error(None, -32600, "Batch requests not supported"))
 
-    response = await process_mcp_request(body, background_tasks)
+    # Log header credentials if present
+    if x_customer_id or x_project_id:
+        logger.info(f"MCP request with header credentials: customer={x_customer_id}, project={x_project_id}")
+
+    response = await process_mcp_request(
+        body, 
+        background_tasks,
+        customer_id=x_customer_id,
+        project_id=x_project_id,
+    )
     
     # If session provided, send response via SSE channel
     if session:
