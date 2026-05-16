@@ -372,21 +372,45 @@ When you receive a travel guide request:
    WANDERLUST_EOF
    ```
 
-6. **Start the web server**:
+6. **Start the web server on port 12000**:
    ```bash
-   cd /workspace && python3 -m http.server 12000 > /dev/null 2>&1 &
+   # Kill any existing server on port 12000 first
+   pkill -f "http.server 12000" 2>/dev/null || true
+   # Start in background, redirecting output
+   cd /workspace && nohup python3 -m http.server 12000 > /tmp/guide_server.log 2>&1 &
+   sleep 2
    echo "Server started on port 12000"
    ```
 
-7. **Report completion** with a message like:
+7. **Discover the public URL** for this sandbox:
+   - Look for the `SANDBOX_HOST_1` environment variable, OR
+   - Parse the work-1 URL from the browser or agent server URL
+   - The guide will be accessible at: `https://work-1-{runtime-id}.prod-runtime.all-hands.dev/travel_guide.html`
+
+8. **CRITICAL: Report completion with the FULL PUBLIC URL**:
    ```
-   TRAVEL_GUIDE_READY
-   destination: {CITY}
-   preferences: {PREFERENCES}
-   guide_path: /workspace/travel_guide.html
-   server_port: 12000
-   status: success
+   TRAVEL_GUIDE_READY: https://work-1-{RUNTIME_ID}.prod-runtime.all-hands.dev/travel_guide.html
+   
+   Your Wanderlust™ Premium Travel Guide for {CITY} is now live!
    ```
+
+   **Important**: The MCP server monitors for this exact marker to extract the URL.
+   Include the complete URL (starting with https://) right after the `TRAVEL_GUIDE_READY:` marker.
+
+## How to Discover the Public URL
+
+The sandbox has a public URL pattern. To find your runtime ID:
+
+```bash
+# Option 1: Check environment variable (if available)
+echo $SANDBOX_HOST_1
+
+# Option 2: Check the agent server URL from the connection
+# The URL follows the pattern: work-1-{RUNTIME_ID}.prod-runtime.all-hands.dev
+```
+
+If you cannot discover the URL programmatically, navigate to the guide using the browser tool 
+to confirm it's serving correctly, then report the URL you see in the browser.
 
 ## Important Notes
 

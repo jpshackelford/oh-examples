@@ -37,7 +37,7 @@ class PrivateConversationResult:
     """Result of a private conversation."""
     success: bool
     conversation_id: str | None
-    guide_path: str | None
+    guide_url: str | None  # Full public URL to the guide
     error: str | None
 
 
@@ -281,8 +281,11 @@ Begin now."""
         """
         Check if the travel guide is ready by looking for completion marker.
 
+        The private conversation should output a marker like:
+        TRAVEL_GUIDE_READY: https://work-1-xxx.prod-runtime.all-hands.dev/travel_guide.html
+
         Returns:
-            (is_ready, guide_path or None)
+            (is_ready, guide_url or None)
         """
         events = await self.get_conversation_events(conversation_id, limit=100)
 
@@ -298,10 +301,31 @@ Begin now."""
                         texts.append(item.get("text", ""))
                     elif isinstance(item, str):
                         texts.append(item)
-                return " ".join(texts)
+                return "\n".join(texts)
             if isinstance(content, dict):
                 return content.get("text", "")
             return ""
+
+        def extract_url_from_text(text: str) -> str | None:
+            """Extract URL from TRAVEL_GUIDE_READY marker or Live URL line."""
+            import re
+            # Look for "TRAVEL_GUIDE_READY: <url>" pattern
+            match = re.search(r'TRAVEL_GUIDE_READY[:\s]+(\S+)', text)
+            if match:
+                url = match.group(1)
+                if url.startswith("http"):
+                    return url
+            # Look for "Live URL:" or similar patterns
+            match = re.search(r'(?:Live URL|URL|Guide URL)[:\s*]+(\S+)', text, re.IGNORECASE)
+            if match:
+                url = match.group(1)
+                if url.startswith("http"):
+                    return url
+            # Look for any URL containing travel_guide.html
+            match = re.search(r'(https?://[^\s<>"]+travel_guide\.html)', text)
+            if match:
+                return match.group(1)
+            return None
 
         for event in events:
             # Check observation content for completion marker
@@ -309,33 +333,31 @@ Begin now."""
             if isinstance(obs, dict):
                 content_text = extract_text(obs.get("content", ""))
                 if "TRAVEL_GUIDE_READY" in content_text:
-                    # Extract guide path from the marker block
-                    if "guide_path:" in content_text:
-                        for line in content_text.split("\n"):
-                            if line.strip().startswith("guide_path:"):
-                                path = line.split(":", 1)[1].strip()
-                                return True, path
-                    return True, "/workspace/travel_guide.html"
+                    url = extract_url_from_text(content_text)
+                    return True, url
 
             # Check message events (MessageEvent with llm_message.content)
             llm_msg = event.get("llm_message", {})
             if isinstance(llm_msg, dict):
                 msg_text = extract_text(llm_msg.get("content", ""))
                 if "TRAVEL_GUIDE_READY" in msg_text:
-                    return True, "/workspace/travel_guide.html"
+                    url = extract_url_from_text(msg_text)
+                    return True, url
             
             # Check direct message field
             message = event.get("message", [])
             msg_text = extract_text(message)
             if "TRAVEL_GUIDE_READY" in msg_text:
-                return True, "/workspace/travel_guide.html"
+                url = extract_url_from_text(msg_text)
+                return True, url
 
             # Check action messages too
             action = event.get("action", {})
             if isinstance(action, dict):
                 action_text = extract_text(action.get("message", "") or action.get("content", ""))
                 if "TRAVEL_GUIDE_READY" in action_text:
-                    return True, "/workspace/travel_guide.html"
+                    url = extract_url_from_text(action_text)
+                    return True, url
 
         return False, None
 
@@ -435,23 +457,23 @@ Begin now."""
                     return PrivateConversationResult(
                         success=False,
                         conversation_id=private_conv_id,
-                        guide_path=None,
+                        guide_url=None,
                         error=error,
                     )
 
                 # Check for completion
-                is_ready, guide_path = await self.check_guide_ready(private_conv_id)
+                is_ready, guide_url = await self.check_guide_ready(private_conv_id)
                 if is_ready:
-                    logger.info(f"Guide ready at {guide_path}")
+                    logger.info(f"Guide ready at {guide_url}")
                     self.db.update_guide_request_status(
                         request_id,
                         RequestStatus.COMPLETED,
-                        result_path=guide_path,
+                        result_url=guide_url,
                     )
                     return PrivateConversationResult(
                         success=True,
                         conversation_id=private_conv_id,
-                        guide_path=guide_path,
+                        guide_url=guide_url,
                         error=None,
                     )
 
@@ -468,7 +490,7 @@ Begin now."""
             return PrivateConversationResult(
                 success=False,
                 conversation_id=private_conv_id,
-                guide_path=None,
+                guide_url=None,
                 error=error_msg,
             )
 
@@ -483,7 +505,7 @@ Begin now."""
             return PrivateConversationResult(
                 success=False,
                 conversation_id=private_conv_id,
-                guide_path=None,
+                guide_url=None,
                 error=error_msg,
             )
 

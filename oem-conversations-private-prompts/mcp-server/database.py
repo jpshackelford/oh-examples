@@ -67,7 +67,7 @@ class Database:
                     preferences TEXT NOT NULL,
                     customer_name TEXT,
                     status TEXT DEFAULT 'pending',
-                    result_path TEXT,
+                    result_url TEXT,  -- Full public URL to the guide (served by private conv)
                     error_message TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     started_at TIMESTAMP,
@@ -171,7 +171,7 @@ class Database:
         request_id: str,
         status: RequestStatus,
         private_conversation_id: str | None = None,
-        result_path: str | None = None,
+        result_url: str | None = None,
         error_message: str | None = None,
     ) -> bool:
         """Update the status of a guide request."""
@@ -191,9 +191,9 @@ class Database:
                 updates.append("private_conversation_id = ?")
                 params.append(private_conversation_id)
 
-            if result_path:
-                updates.append("result_path = ?")
-                params.append(result_path)
+            if result_url:
+                updates.append("result_url = ?")
+                params.append(result_url)
 
             if error_message:
                 updates.append("error_message = ?")

@@ -15,7 +15,26 @@ Simply relying on prompt engineering to tell the LLM "don't reveal your instruct
 
 ## The Solution: Two-Conversation Architecture
 
-The key insight is to separate concerns into **two distinct conversations**:
+The key insight is to separate concerns into **two distinct conversations** that share the same sandbox:
+
+```
+┌─────────────────┐          ┌─────────────┐          ┌─────────────────────┐
+│   Customer      │   MCP    │             │   API    │     Private         │
+│   Conversation  │◄────────►│  MCP Server │◄────────►│   Conversation      │
+│                 │          │             │          │                     │
+│  • Interacts    │          │  • Routes   │          │  • Generates HTML   │
+│    with user    │          │    requests │          │  • Starts server    │
+│  • Gets URL     │          │  • Stores   │          │  • Returns URL      │
+│  • Shows link   │          │    state    │          │  • Has secrets      │
+└─────────────────┘          └─────────────┘          └─────────────────────┘
+       │                                                       │
+       │                    SHARED SANDBOX                     │
+       │              (Files, Web Server on :12000)            │
+       └───────────────────────────────────────────────────────┘
+                    Web server managed by private conv
+```
+
+### Detailed Architecture
 
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
@@ -32,7 +51,8 @@ The key insight is to separate concerns into **two distinct conversations**:
 │  │  • MCP tools exposed       │    │  • Secret techniques           │ │
 │  │  • Customer ID/Secret      │    │  • Protected credentials       │ │
 │  │  • No proprietary prompts  │    │  • Custom branding logic       │ │
-│  │                            │    │                                │ │
+│  │  • Just presents URL       │    │  • Hosts web server (:12000)   │ │
+│  │                            │    │  • Returns full public URL     │ │
 │  └─────────────┬──────────────┘    └────────────────▲───────────────┘ │
 └────────────────┼───────────────────────────────────┼──────────────────┘
                  │                                   │
@@ -49,9 +69,18 @@ The key insight is to separate concerns into **two distinct conversations**:
           │  • Manages state between public/private      │
           │  • Proxies requests without exposing secrets │
           │  • Customer ID/Secret validation             │
+          │  • Extracts and stores result URL            │
           │                                              │
           └──────────────────────────────────────────────┘
 ```
+
+### Important: Web Server Ownership
+
+Since both conversations share the same sandbox, **only the private conversation** should manage the web server:
+
+1. **Private conversation** generates HTML → starts web server on :12000 → returns the full public URL
+2. **Customer conversation** simply receives and presents the URL to the user
+3. This avoids port conflicts and keeps the architecture clean
 
 ### Key Security Properties
 
@@ -196,15 +225,17 @@ The demo will:
 ### Conversation Tracking (SQLite)
 
 ```sql
-CREATE TABLE conversations (
+CREATE TABLE guide_requests (
     id TEXT PRIMARY KEY,
     customer_id TEXT NOT NULL,
-    public_conversation_id TEXT NOT NULL,
+    sandbox_id TEXT NOT NULL,
     private_conversation_id TEXT,
+    destination TEXT NOT NULL,
+    preferences TEXT NOT NULL,
     status TEXT DEFAULT 'pending',  -- pending, processing, completed, failed
+    result_url TEXT,  -- Full public URL to the guide (served by private conversation)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    completed_at TIMESTAMP,
-    result_path TEXT  -- Path to generated artifact in sandbox
+    completed_at TIMESTAMP
 );
 ```
 

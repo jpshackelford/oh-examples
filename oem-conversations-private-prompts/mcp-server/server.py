@@ -407,6 +407,12 @@ async def handle_check_guide_status(params: dict[str, Any]) -> dict[str, Any]:
             sandbox_host="YOUR_SANDBOX_HOST"  # This would be dynamically determined
         )
 
+        guide_url = request.get('result_url')
+        if guide_url:
+            url_text = f"**Guide URL:** {guide_url}"
+        else:
+            url_text = "**Note:** URL not available - guide is at /workspace/travel_guide.html"
+        
         return {
             "content": [
                 {
@@ -414,11 +420,9 @@ async def handle_check_guide_status(params: dict[str, Any]) -> dict[str, Any]:
                     "text": f"""🎉 **Your Wanderlust™ Guide is Ready!**
 
 **Destination:** {destination}
-**Guide Path:** {request.get('result_path', '/workspace/travel_guide.html')}
+{url_text}
 
-The guide has been generated and is being served on **port 12000** of your sandbox.
-
-To view it, open the work-1 URL for your sandbox (the guide is at the root path).
+Simply click the link above to view your personalized travel guide!
 
 Enjoy your journey! 🌟""",
                 }
