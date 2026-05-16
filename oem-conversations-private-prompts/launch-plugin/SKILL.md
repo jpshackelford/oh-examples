@@ -108,14 +108,26 @@ If ready:
 
 5. **Use the Customer's Name**: If they provide it, personalize the experience.
 
-## Credentials
+## Credentials (IMPORTANT!)
 
-The customer's credentials should be provided at conversation start via secrets:
+The customer's credentials are provided as **environment variables**:
 - `WANDERLUST_CUSTOMER_ID` - Customer identifier
-- `WANDERLUST_CUSTOMER_SECRET` - Customer authentication secret
 - `WANDERLUST_PROJECT_ID` - Project identifier (links to sandbox)
 
-These are automatically injected when the conversation is created. If any are missing, the demo was not set up correctly.
+**CRITICAL:** Before calling any MCP tool, you MUST read these values from the environment using Python or shell commands. Do NOT pass the literal strings like `$WANDERLUST_CUSTOMER_ID` to the tools - you must read and pass the actual values.
+
+Example - read credentials before calling tools:
+```python
+import os
+customer_id = os.environ.get('WANDERLUST_CUSTOMER_ID', '')
+project_id = os.environ.get('WANDERLUST_PROJECT_ID', '')
+print(f"Customer ID: {customer_id}")
+print(f"Project ID: {project_id}")
+```
+
+Then use these actual values when calling `request_travel_guide`, `check_guide_status`, etc.
+
+For `customer_secret`, use the same value as `customer_id` (simplified auth for this demo).
 
 ## Example Conversation
 
