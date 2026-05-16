@@ -151,13 +151,9 @@ MCP_TOOLS = [
                     "type": "string",
                     "description": "Your Wanderlust customer secret",
                 },
-                "sandbox_id": {
+                "project_id": {
                     "type": "string",
-                    "description": "The sandbox ID for the current conversation",
-                },
-                "conversation_id": {
-                    "type": "string",
-                    "description": "The current conversation ID (for tracking)",
+                    "description": "Your Wanderlust project ID (provided by the service)",
                 },
                 "destination": {
                     "type": "string",
@@ -180,7 +176,7 @@ MCP_TOOLS = [
                     "description": "Optional: Customer name for personalization",
                 },
             },
-            "required": ["customer_id", "customer_secret", "sandbox_id", "destination", "preferences"],
+            "required": ["customer_id", "customer_secret", "project_id", "destination", "preferences"],
         },
     },
     {
@@ -249,8 +245,7 @@ async def handle_request_travel_guide(
     # Extract and validate parameters
     customer_id = params.get("customer_id", "")
     customer_secret = params.get("customer_secret", "")
-    sandbox_id = params.get("sandbox_id", "")
-    conversation_id = params.get("conversation_id")  # Optional, for tracking
+    project_id = params.get("project_id", "")
     destination = params.get("destination", "")
     preferences = params.get("preferences", "")
     customer_name = params.get("customer_name")
@@ -268,12 +263,39 @@ async def handle_request_travel_guide(
         }
 
     # Validate required fields
-    if not sandbox_id or not destination or not preferences:
+    if not project_id or not destination or not preferences:
         return {
             "content": [
                 {
                     "type": "text",
-                    "text": "❌ Missing required fields: sandbox_id, destination, and preferences are required.",
+                    "text": "❌ Missing required fields: project_id, destination, and preferences are required.",
+                }
+            ],
+            "isError": True,
+        }
+
+    # Look up sandbox_id from project_id
+    project = db.get_project(project_id)
+    if not project:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"❌ Invalid project_id: '{project_id}'. Project not found or inactive.",
+                }
+            ],
+            "isError": True,
+        }
+
+    sandbox_id = project["sandbox_id"]
+
+    # Verify customer matches project
+    if project["customer_id"] != customer_id:
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": "❌ Access denied. This project belongs to a different customer.",
                 }
             ],
             "isError": True,
@@ -298,10 +320,10 @@ async def handle_request_travel_guide(
         destination=destination,
         preferences=preferences,
         customer_name=customer_name,
-        public_conversation_id=conversation_id,
+        public_conversation_id=None,  # No longer tracking this
     )
 
-    logger.info(f"Created guide request {request_id} for {destination} (conversation: {conversation_id})")
+    logger.info(f"Created guide request {request_id} for {destination} (project: {project_id}, sandbox: {sandbox_id})")
 
     # Start background task to generate the guide
     background_tasks.add_task(
@@ -676,9 +698,101 @@ async def root():
         "endpoints": {
             "mcp": "POST /mcp - MCP JSON-RPC endpoint",
             "health": "GET /health - Health check",
+            "projects": "POST /projects - Seed project→sandbox mapping (admin)",
         },
         "tools": [t["name"] for t in MCP_TOOLS],
     }
+
+
+# =============================================================================
+# Project Management API (for demo host)
+# =============================================================================
+
+class CreateProjectRequest(BaseModel):
+    """Request to create/seed a project."""
+    project_id: str
+    sandbox_id: str
+    customer_id: str
+    customer_name: str | None = None
+
+
+@app.post("/projects")
+async def create_project(
+    request: CreateProjectRequest,
+    authorization: str | None = Header(None),
+):
+    """
+    Create a project mapping project_id to sandbox_id.
+    
+    Called by the demo host to seed the database before starting
+    the customer conversation. Requires MCP auth token.
+    """
+    # Verify MCP token (same auth as MCP endpoint)
+    if not verify_mcp_token(authorization):
+        raise HTTPException(status_code=401, detail="Invalid or missing auth token")
+
+    # Check if project already exists
+    existing = db.get_project(request.project_id)
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Project '{request.project_id}' already exists"
+        )
+
+    # Create the project
+    try:
+        db.create_project(
+            project_id=request.project_id,
+            sandbox_id=request.sandbox_id,
+            customer_id=request.customer_id,
+            customer_name=request.customer_name,
+        )
+        logger.info(
+            f"Created project {request.project_id} -> sandbox {request.sandbox_id} "
+            f"for customer {request.customer_id}"
+        )
+        return {
+            "status": "created",
+            "project_id": request.project_id,
+            "sandbox_id": request.sandbox_id,
+            "customer_id": request.customer_id,
+        }
+    except Exception as e:
+        logger.error(f"Failed to create project: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/projects/{project_id}")
+async def get_project(
+    project_id: str,
+    authorization: str | None = Header(None),
+):
+    """Get project details. Requires MCP auth token."""
+    if not verify_mcp_token(authorization):
+        raise HTTPException(status_code=401, detail="Invalid or missing auth token")
+
+    project = db.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+
+    return project
+
+
+@app.delete("/projects/{project_id}")
+async def deactivate_project(
+    project_id: str,
+    authorization: str | None = Header(None),
+):
+    """Deactivate a project. Requires MCP auth token."""
+    if not verify_mcp_token(authorization):
+        raise HTTPException(status_code=401, detail="Invalid or missing auth token")
+
+    success = db.deactivate_project(project_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+
+    logger.info(f"Deactivated project {project_id}")
+    return {"status": "deactivated", "project_id": project_id}
 
 
 # =============================================================================

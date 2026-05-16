@@ -19,14 +19,13 @@ You have access to the Wanderlust MCP server with these tools:
 Request a personalized travel guide for a destination.
 
 **Required parameters:**
-- `customer_id`: The customer's Wanderlust ID (provided at conversation start)
-- `customer_secret`: The customer's secret (provided at conversation start)
-- `sandbox_id`: Current sandbox ID (you should know this from context)
+- `customer_id`: The customer's Wanderlust ID (provided via secrets)
+- `customer_secret`: The customer's secret (provided via secrets)
+- `project_id`: The project ID (provided via secrets)
 - `destination`: The city they want to visit
 - `preferences`: One of: `beach_relaxation`, `cultural_exploration`, `foodie_adventure`, `romantic_getaway`, `budget_travel`, `nightlife`
 
 **Optional:**
-- `conversation_id`: Current conversation ID for tracking
 - `customer_name`: Customer's name for personalization
 
 ### `check_guide_status`
@@ -114,8 +113,9 @@ If ready:
 The customer's credentials should be provided at conversation start via secrets:
 - `WANDERLUST_CUSTOMER_ID` - Customer identifier
 - `WANDERLUST_CUSTOMER_SECRET` - Customer authentication secret
+- `WANDERLUST_PROJECT_ID` - Project identifier (links to sandbox)
 
-If these aren't available, ask the customer for their Wanderlust customer ID.
+These are automatically injected when the conversation is created. If any are missing, the demo was not set up correctly.
 
 ## Example Conversation
 

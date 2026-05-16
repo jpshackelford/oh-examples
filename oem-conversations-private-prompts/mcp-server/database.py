@@ -43,10 +43,23 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
 
+                -- Projects table: maps project_id to sandbox_id
+                -- Seeded by demo host before customer conversation starts
+                CREATE TABLE IF NOT EXISTS projects (
+                    project_id TEXT PRIMARY KEY,
+                    sandbox_id TEXT NOT NULL,
+                    customer_id TEXT NOT NULL,
+                    customer_name TEXT,
+                    active INTEGER DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
+                );
+
                 -- Guide generation requests
                 CREATE TABLE IF NOT EXISTS guide_requests (
                     id TEXT PRIMARY KEY,
                     customer_id TEXT NOT NULL,
+                    project_id TEXT,
                     sandbox_id TEXT NOT NULL,
                     public_conversation_id TEXT,
                     private_conversation_id TEXT,
@@ -59,7 +72,8 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     started_at TIMESTAMP,
                     completed_at TIMESTAMP,
-                    FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
+                    FOREIGN KEY (customer_id) REFERENCES customers(customer_id),
+                    FOREIGN KEY (project_id) REFERENCES projects(project_id)
                 );
 
                 -- Index for efficient status queries
@@ -69,6 +83,10 @@ class Database:
                     ON guide_requests(customer_id);
                 CREATE INDEX IF NOT EXISTS idx_guide_requests_sandbox 
                     ON guide_requests(sandbox_id);
+                CREATE INDEX IF NOT EXISTS idx_guide_requests_project 
+                    ON guide_requests(project_id);
+                CREATE INDEX IF NOT EXISTS idx_projects_sandbox 
+                    ON projects(sandbox_id);
 
                 -- Insert demo customers if they don't exist
                 INSERT OR IGNORE INTO customers (customer_id, customer_secret_hash, name)
@@ -224,3 +242,65 @@ class Database:
                 (customer_id, limit)
             ).fetchall()
             return [dict(row) for row in rows]
+
+    # Project operations
+
+    def create_project(
+        self,
+        project_id: str,
+        sandbox_id: str,
+        customer_id: str,
+        customer_name: str | None = None,
+    ) -> str:
+        """
+        Create a new project mapping project_id to sandbox_id.
+        
+        Called by the demo host to seed the database before
+        starting the customer conversation.
+        """
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO projects (project_id, sandbox_id, customer_id, customer_name)
+                VALUES (?, ?, ?, ?)
+                """,
+                (project_id, sandbox_id, customer_id, customer_name)
+            )
+        return project_id
+
+    def get_project(self, project_id: str) -> dict[str, Any] | None:
+        """Get a project by ID."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM projects WHERE project_id = ? AND active = 1",
+                (project_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_project_by_sandbox(self, sandbox_id: str) -> dict[str, Any] | None:
+        """Get a project by sandbox ID."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM projects WHERE sandbox_id = ? AND active = 1",
+                (sandbox_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def deactivate_project(self, project_id: str) -> bool:
+        """Mark a project as inactive (soft delete)."""
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "UPDATE projects SET active = 0 WHERE project_id = ?",
+                (project_id,)
+            )
+            return cursor.rowcount > 0
+
+    def get_sandbox_id_for_project(self, project_id: str) -> str | None:
+        """
+        Look up sandbox_id for a given project_id.
+        
+        This is the key lookup used by request_travel_guide
+        to determine which sandbox to use for the private conversation.
+        """
+        project = self.get_project(project_id)
+        return project["sandbox_id"] if project else None

@@ -127,6 +127,7 @@ class ConversationManager:
         customer_name: str | None = None,
         plugin_source: str = "github:jpshackelford/oh-examples",
         plugin_path: str = "oem-conversations-private-prompts/proprietary-plugin",
+        plugin_ref: str = "feature/oem-conversations-private-prompts",
     ) -> dict[str, Any]:
         """
         Start a private conversation in an existing sandbox.
@@ -161,13 +162,14 @@ class ConversationManager:
                 {
                     "source": plugin_source,
                     "repo_path": plugin_path,
+                    "ref": plugin_ref,
                 }
             ],
             "title": f"[Private] Travel Guide: {destination}",
         }
 
         logger.info(f"Starting private conversation for {destination} in sandbox {sandbox_id}")
-        logger.debug(f"Plugin: {plugin_source} / {plugin_path}")
+        logger.debug(f"Plugin: {plugin_source} / {plugin_path} @ {plugin_ref}")
 
         resp = await self.client.post(
             f"{self.api_url}/v1/app-conversations",
