@@ -220,9 +220,27 @@ The demo will:
 
 ### What This Pattern Does NOT Protect Against
 
-⚠️ **Output Inference**: Clever users might deduce some techniques from outputs  
-⚠️ **Sandbox Escape**: If the public agent can read arbitrary files, secrets could leak  
+⚠️ **Output Inference**: Clever users might deduce some techniques from outputs
+⚠️ **Sandbox Escape**: If the public agent can read arbitrary files, secrets could leak
 ⚠️ **MCP Server Compromise**: Standard web security practices apply
+
+### ⚠️ Important: Shared Sandbox Limitation
+
+**This example uses a shared sandbox for simplicity, but this has security implications.**
+
+When both conversations share the same sandbox, the customer conversation could potentially read cached plugin files at `~/.openhands/cache/plugins/`, which would expose the proprietary plugin's contents.
+
+**For production deployments, consider:**
+
+1. **Separate Sandboxes**: Run the private conversation in its own isolated sandbox. Use a shared storage mechanism (S3, GCS, or networked filesystem) to transfer generated artifacts.
+
+2. **Plugin Cache Isolation**: Implement sandbox-level controls to prevent the customer conversation from accessing the plugin cache directory.
+
+3. **Ephemeral Private Sandboxes**: Spin up a fresh sandbox for each private conversation and tear it down after transferring results.
+
+4. **Read-Only Artifact Sharing**: Only expose a specific directory (e.g., `/workspace/output/`) to both conversations, keeping all other paths isolated.
+
+The shared sandbox approach in this example prioritizes demonstrating the two-conversation architecture pattern. A production implementation should evaluate the appropriate isolation level based on threat model and infrastructure capabilities.
 
 ### Best Practices
 
@@ -230,6 +248,7 @@ The demo will:
 2. **Rotate Credentials**: MCP auth tokens and customer secrets should be rotatable
 3. **Audit Logs**: Log all MCP calls and private conversation initiations
 4. **Rate Limiting**: Prevent abuse of the conversation-starting mechanism
+5. **Isolate Plugin Cache**: In production, prevent customer access to `~/.openhands/cache/plugins/`
 
 ## How It Works: Technical Details
 
