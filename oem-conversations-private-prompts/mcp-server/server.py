@@ -599,8 +599,116 @@ def get_waiting_suggestions(destination: str, preferences: str) -> str:
 
 
 # =============================================================================
-# MCP Endpoints
+# MCP Endpoints (SSE Transport)
 # =============================================================================
+
+# SSE client management
+import asyncio
+from collections import defaultdict
+from typing import AsyncGenerator
+from fastapi.responses import StreamingResponse
+
+# Store for SSE clients: session_id -> asyncio.Queue
+sse_clients: dict[str, asyncio.Queue] = {}
+sse_lock = asyncio.Lock()
+
+
+async def process_mcp_request(body: dict, background_tasks: BackgroundTasks) -> dict:
+    """Process an MCP JSON-RPC request and return the response."""
+    method = body.get("method", "")
+    request_id = body.get("id")
+    params = body.get("params", {})
+
+    logger.info(f"MCP request: {method}")
+
+    # Handle methods
+    if method == "initialize":
+        return mcp_response(request_id, {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {"tools": {}},
+            "serverInfo": {
+                "name": "wanderlust-travel",
+                "version": "0.1.0",
+            },
+        })
+
+    elif method == "notifications/initialized":
+        return mcp_response(request_id, {})
+
+    elif method == "tools/list":
+        return mcp_response(request_id, {"tools": MCP_TOOLS})
+
+    elif method == "tools/call":
+        tool_name = params.get("name", "")
+        arguments = params.get("arguments", {})
+
+        if tool_name == "request_travel_guide":
+            result = await handle_request_travel_guide(arguments, background_tasks)
+            return mcp_response(request_id, result)
+
+        elif tool_name == "check_guide_status":
+            result = await handle_check_guide_status(arguments)
+            return mcp_response(request_id, result)
+
+        elif tool_name == "list_my_requests":
+            result = await handle_list_my_requests(arguments)
+            return mcp_response(request_id, result)
+
+        else:
+            return mcp_error(request_id, -32601, f"Unknown tool: {tool_name}")
+
+    else:
+        return mcp_error(request_id, -32601, f"Unknown method: {method}")
+
+
+@app.get("/mcp")
+async def handle_mcp_sse(
+    authorization: str | None = Header(None),
+):
+    """
+    SSE endpoint for MCP - maintains connection for server-to-client messages.
+    """
+    if not verify_mcp_token(authorization):
+        raise HTTPException(status_code=401, detail="Invalid or missing MCP token")
+
+    session_id = str(uuid.uuid4())
+    client_queue: asyncio.Queue = asyncio.Queue()
+
+    async with sse_lock:
+        sse_clients[session_id] = client_queue
+
+    logger.info(f"SSE connection opened: {session_id}")
+
+    async def event_generator() -> AsyncGenerator[str, None]:
+        try:
+            # Send session ID as first event
+            yield f"event: session\ndata: {json.dumps({'session_id': session_id})}\n\n"
+
+            while True:
+                try:
+                    # Wait for messages to send to client
+                    message = await asyncio.wait_for(client_queue.get(), timeout=30.0)
+                    yield f"data: {json.dumps(message)}\n\n"
+                except asyncio.TimeoutError:
+                    # Send keepalive
+                    yield ": keepalive\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            async with sse_lock:
+                sse_clients.pop(session_id, None)
+            logger.info(f"SSE connection closed: {session_id}")
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
 
 @app.post("/mcp")
 async def handle_mcp(
@@ -609,7 +717,7 @@ async def handle_mcp(
     authorization: str | None = Header(None),
 ):
     """
-    Handle MCP JSON-RPC requests.
+    Handle MCP JSON-RPC requests via POST.
 
     Supports:
     - initialize
@@ -632,50 +740,8 @@ async def handle_mcp(
         # Batch request - not implemented for simplicity
         return JSONResponse(mcp_error(None, -32600, "Batch requests not supported"))
 
-    method = body.get("method", "")
-    request_id = body.get("id")
-    params = body.get("params", {})
-
-    logger.info(f"MCP request: {method}")
-
-    # Handle methods
-    if method == "initialize":
-        return JSONResponse(mcp_response(request_id, {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {"tools": {}},
-            "serverInfo": {
-                "name": "wanderlust-travel",
-                "version": "0.1.0",
-            },
-        }))
-
-    elif method == "notifications/initialized":
-        return JSONResponse(mcp_response(request_id, {}))
-
-    elif method == "tools/list":
-        return JSONResponse(mcp_response(request_id, {"tools": MCP_TOOLS}))
-
-    elif method == "tools/call":
-        tool_name = params.get("name", "")
-        arguments = params.get("arguments", {})
-
-        if tool_name == "request_travel_guide":
-            result = await handle_request_travel_guide(arguments, background_tasks)
-            return JSONResponse(mcp_response(request_id, result))
-
-        elif tool_name == "check_guide_status":
-            result = await handle_check_guide_status(arguments)
-            return JSONResponse(mcp_response(request_id, result))
-
-        elif tool_name == "list_my_requests":
-            result = await handle_list_my_requests(arguments)
-            return JSONResponse(mcp_response(request_id, result))
-
-        else:
-            return JSONResponse(mcp_error(request_id, -32601, f"Unknown tool: {tool_name}"))
-
-    else:
-        return JSONResponse(mcp_error(request_id, -32601, f"Unknown method: {method}"))
+    response = await process_mcp_request(body, background_tasks)
+    return JSONResponse(response)
 
 
 @app.get("/health")
