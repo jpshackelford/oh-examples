@@ -286,25 +286,55 @@ Begin now."""
         """
         events = await self.get_conversation_events(conversation_id, limit=100)
 
+        def extract_text(content: Any) -> str:
+            """Extract text from various content formats."""
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                # Handle list of content blocks: [{"type": "text", "text": "..."}]
+                texts = []
+                for item in content:
+                    if isinstance(item, dict):
+                        texts.append(item.get("text", ""))
+                    elif isinstance(item, str):
+                        texts.append(item)
+                return " ".join(texts)
+            if isinstance(content, dict):
+                return content.get("text", "")
+            return ""
+
         for event in events:
             # Check observation content for completion marker
             obs = event.get("observation", {})
             if isinstance(obs, dict):
-                content = obs.get("content", "")
-                if isinstance(content, str) and "TRAVEL_GUIDE_READY" in content:
+                content_text = extract_text(obs.get("content", ""))
+                if "TRAVEL_GUIDE_READY" in content_text:
                     # Extract guide path from the marker block
-                    if "guide_path:" in content:
-                        for line in content.split("\n"):
+                    if "guide_path:" in content_text:
+                        for line in content_text.split("\n"):
                             if line.strip().startswith("guide_path:"):
                                 path = line.split(":", 1)[1].strip()
                                 return True, path
                     return True, "/workspace/travel_guide.html"
 
+            # Check message events (MessageEvent with llm_message.content)
+            llm_msg = event.get("llm_message", {})
+            if isinstance(llm_msg, dict):
+                msg_text = extract_text(llm_msg.get("content", ""))
+                if "TRAVEL_GUIDE_READY" in msg_text:
+                    return True, "/workspace/travel_guide.html"
+            
+            # Check direct message field
+            message = event.get("message", [])
+            msg_text = extract_text(message)
+            if "TRAVEL_GUIDE_READY" in msg_text:
+                return True, "/workspace/travel_guide.html"
+
             # Check action messages too
             action = event.get("action", {})
             if isinstance(action, dict):
-                msg = action.get("message", "") or action.get("content", "")
-                if isinstance(msg, str) and "TRAVEL_GUIDE_READY" in msg:
+                action_text = extract_text(action.get("message", "") or action.get("content", ""))
+                if "TRAVEL_GUIDE_READY" in action_text:
                     return True, "/workspace/travel_guide.html"
 
         return False, None
