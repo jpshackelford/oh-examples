@@ -2,7 +2,7 @@
   "mcpServers": {
     "wanderlust": {
       "url": "${MCP_SERVER_URL}/mcp",
-      "transport": "sse",
+      "transport": "streamable-http",
       "headers": {
         "Authorization": "Bearer ${MCP_AUTH_TOKEN}"
       }
