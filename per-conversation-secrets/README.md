@@ -1,239 +1,347 @@
 # Per-Conversation Secrets via REST API
 
-This example demonstrates how to inject per-conversation secrets into an OpenHands conversation
-using only REST APIs (no WebSocket required).
+This example demonstrates how to inject per-conversation secrets into an OpenHands
+conversation using only REST APIs (no WebSocket required), and — importantly — how
+those secrets can be **expanded into a plugin's MCP server configuration** so the
+agent can talk to a third-party MCP server with a token that lives only for the
+lifetime of one conversation.
 
-## Overview
+## Why you'd want this
 
-OpenHands allows users to define secrets at the user level, but sometimes you need to pass
-secrets that are specific to a single conversation - for example, a temporary API token or
-a session-specific credential.
+OpenHands already lets users define secrets at the *user* level (stored in the
+vault). That's fine for stable, long-lived credentials. But there are cases where
+you want a secret that is:
 
-## APIs Used
+- **Scoped to a single conversation** — e.g., a customer's OAuth token, a
+  temporary CI credential, or a one-off API key the calling system minted for
+  this run.
+- **Used to authenticate an MCP server**, not just exported as a bash variable —
+  e.g., wire the agent into a customer's Linear / GitHub / internal API by
+  passing the right `Authorization: Bearer …` header on every MCP call.
+
+This example shows both, and how they compose.
+
+## The two patterns shown here
+
+A single `secrets` field on the conversation-start request powers two related but
+distinct patterns. **Read this section before anything else** — most of the
+confusion in earlier versions of this README came from blurring them together.
+
+### Pattern A — Secrets as bash environment variables
+
+You pass `{"MY_KEY": "value"}` at conversation start (or inject it later via the
+agent server's `/secrets` endpoint), and `$MY_KEY` becomes available to every
+`bash` command the agent runs.
+
+- **Demonstrated by:** `test_secrets_at_start.py` (recommended) and
+  `test_secrets.py` (legacy / mid-conversation injection).
+- **Use when:** the agent needs a credential to run a CLI command, hit an HTTP
+  API via `curl`, or otherwise consume a secret from the shell.
+
+### Pattern B — Secrets as `${VARIABLE}` placeholders inside a plugin's MCP config
+
+The same `secrets` field also feeds variable expansion in an OpenHands
+**plugin**'s `.mcp.json`. A plugin is a small bundle of files (described below)
+that OpenHands fetches from GitHub at conversation start; if its `.mcp.json`
+contains `${MCP_SERVER_URL}` or `${MCP_SECRET_TOKEN}`, those placeholders are
+filled in from the conversation's secrets *before* the MCP transport is dialed.
+
+- **Demonstrated by:** `test_mcp_secrets_at_start.py` (recommended) and
+  `test_mcp_secrets.py` (legacy).
+- **Use when:** you want the agent to talk to an MCP server (yours or a
+  customer's) using a token that isn't in the user's vault — for example, a
+  per-tenant token chosen by your application for this conversation only.
+
+The rest of this document walks through Pattern B in detail because it's the
+less obvious of the two. Pattern A is just "set an env var" — see the test
+scripts for end-to-end examples.
+
+## What is a plugin (in this example)?
+
+A plugin is a directory in a git repo with three files. The whole `test-plugin/`
+folder in this repo is a working example:
+
+```
+test-plugin/
+├── .mcp.json            # MCP server registration WITH ${...} placeholders
+├── .plugin/plugin.json  # manifest: name, version, author
+└── SKILL.md             # human-readable doc the agent reads
+```
+
+**`test-plugin/.mcp.json`** — note the `${VARIABLE}` placeholders:
+
+```json
+{
+  "mcpServers": {
+    "token-validator": {
+      "url": "${MCP_SERVER_URL}/mcp",
+      "transport": "sse",
+      "headers": {
+        "Authorization": "Bearer ${MCP_SECRET_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+**`test-plugin/.plugin/plugin.json`** — minimal manifest:
+
+```json
+{
+  "name": "secret-token-validator",
+  "version": "1.0.0",
+  "description": "Plugin that connects to an MCP server using a per-conversation secret token",
+  "author": { "name": "OpenHands", "email": "openhands@all-hands.dev" },
+  "license": "MIT"
+}
+```
+
+**`test-plugin/SKILL.md`** — short markdown explaining the plugin's tools and
+required secrets. The agent reads this so it knows what the plugin exposes.
+
+You point a conversation at this plugin by adding a `plugins` entry alongside
+`secrets` in the start request:
+
+```python
+"plugins": [{
+    "source": "github:jpshackelford/oh-examples",
+    "repo_path": "per-conversation-secrets/test-plugin"
+}]
+```
+
+`source` resolves to a GitHub repo, `repo_path` is the directory within it.
+OpenHands fetches the directory, reads `.mcp.json`, and **expands `${...}`
+references against the `secrets` you passed in the same request** before
+establishing the MCP transport. That expansion step is the whole point of
+Pattern B.
+
+## APIs used
 
 These tests exercise **two separate OpenHands APIs**:
 
 ### 1. App Server API
-- **Purpose**: Manages sandboxes, conversations, and user resources
-- **Base URL**: `https://app.all-hands.dev/api` (or custom deployment)
-- **Auth Header**: `X-Access-Token: <your_api_key>`
-- **OpenAPI Spec**: `https://app.all-hands.dev/openapi.json`
+- **Purpose:** Manages sandboxes, conversations, and user resources.
+- **Base URL:** `https://app.all-hands.dev/api` (or your deployment).
+- **Auth header:** `X-Access-Token: <your_api_key>`
+- **OpenAPI spec:** `https://app.all-hands.dev/openapi.json`
 
 ### 2. Agent Server API
-- **Purpose**: Direct agent interaction within a running sandbox
-- **Base URL**: Obtained from sandbox's `exposed_urls` array (look for `name="AGENT_SERVER"`)
-- **Auth Header**: `X-Session-API-Key: <session_api_key>` (from sandbox creation response)
-- **OpenAPI Spec**: `{agent_server_url}/openapi.json`
+- **Purpose:** Direct agent interaction inside a running sandbox.
+- **Base URL:** From the sandbox's `exposed_urls` array (entry with
+  `name="AGENT_SERVER"`).
+- **Auth header:** `X-Session-API-Key: <session_api_key>` (from sandbox creation).
+- **OpenAPI spec:** `{agent_server_url}/openapi.json`
 
-> **Tip**: To explore the Agent Server API, first create a sandbox via the App Server,
-> wait for it to reach RUNNING status, then fetch `{agent_server_url}/openapi.json`.
+> **Tip:** To explore the Agent Server API, first create a sandbox via the App
+> Server, wait for it to reach `RUNNING` status, then fetch
+> `{agent_server_url}/openapi.json`.
 
-## Two Approaches
+## Two ways to deliver the secrets
 
-There are now **two ways** to inject per-conversation secrets:
+Independent of A vs. B above, there are two *timings* for getting secrets into
+the conversation:
 
-### 1. At Conversation Start (NEW - Recommended)
+### 1. At conversation start (recommended)
 
 Pass secrets directly in the `POST /v1/app-conversations` request body:
 
 ```python
 requests.post(
     f'{api_url}/v1/app-conversations',
-    headers={'X-Access-Token': api_key},  # App Server auth
+    headers={'X-Access-Token': api_key},
     json={
         'sandbox_id': sandbox_id,
         'initial_message': {...},
-        'secrets': {                    # <-- New field!
+        'secrets': {
             'GITHUB_TOKEN': 'ghp_...',
-            'MY_API_KEY': 'sk-...',
-        }
-    }
+            'MCP_SECRET_TOKEN': 'per-conv-secret-xyz-123',
+            'MCP_SERVER_URL': 'https://...',
+        },
+        'plugins': [{                  # only needed for Pattern B
+            'source': 'github:jpshackelford/oh-examples',
+            'repo_path': 'per-conversation-secrets/test-plugin',
+        }],
+    },
 )
 ```
 
 **Advantages:**
-- Single request - simpler API
-- Secrets available immediately when agent starts
-- No race condition - guaranteed to be set before agent runs
-- Secrets are merged with vault secrets (API secrets take precedence)
+- Single request — simpler API.
+- Secrets available immediately when the agent starts.
+- No race condition — guaranteed to be set before the agent runs.
+- Secrets are merged with vault secrets (request secrets take precedence).
+- **Required for Pattern B** — `${...}` expansion in a plugin's `.mcp.json`
+  needs the secrets to be present *before* the MCP transport is opened.
 
 **Requirements:**
 - OpenHands PR [#14009](https://github.com/OpenHands/OpenHands/pull/14009)
 - SDK PR [#2873](https://github.com/OpenHands/software-agent-sdk/pull/2873)
 
-**Test script:** `test_secrets_at_start.py`
+### 2. After conversation start (original)
 
-### 2. After Conversation Start (Original)
-
-Inject secrets via the Agent Server's `/secrets` endpoint after the conversation starts:
+Inject secrets via the Agent Server's `/secrets` endpoint after the conversation
+already exists:
 
 ```python
-# After starting conversation...
 requests.post(
     f'{agent_server_url}/api/conversations/{conv_id}/secrets',
     headers={'X-Session-API-Key': session_api_key},
-    json={'secrets': {'MY_SECRET': 'value'}}
+    json={'secrets': {'MY_SECRET': 'value'}},
 )
 ```
 
 **Use when:**
-- Need to add secrets mid-conversation
-- Running on older OpenHands versions
+- You need to add secrets mid-conversation.
+- You're on an older OpenHands version without the at-start `secrets` field.
 
-**Test script:** `test_secrets.py`
+Note: post-hoc injection works for Pattern A (bash env vars) but **does not help
+with Pattern B**, because the MCP transport for a plugin is established when the
+conversation starts.
 
-## Quick Comparison
+## Quick comparison
 
-| Feature | At Start (New) | After Start (Original) |
-|---------|----------------|------------------------|
-| API | App Server | Agent Server |
-| Endpoint | `POST /v1/app-conversations` | `POST /api/conversations/{id}/secrets` |
-| Auth Header | `X-Access-Token: {api_key}` | `X-Session-API-Key: {session_key}` |
-| Timing | Before agent runs | After conversation created |
-| Simplicity | Single request | Multiple requests |
-| Mid-conversation | No | Yes |
-
-## Proven to Work!
-
-Both approaches have been tested and verified:
-
-**At-start approach (`test_secrets_at_start.py`):**
-1. Starts a sandbox via the App Server API
-2. Starts a conversation with secrets in the request body
-3. Verifies the secrets are available as environment variables
-
-**After-start approach (`test_secrets.py`):**
-1. Starts a sandbox via the App Server API
-2. Starts a conversation with that sandbox
-3. Injects secrets via the Agent Server API
-4. Verifies the secrets are available as environment variables
+| Feature                  | At start (new)                  | After start (original)                       |
+|--------------------------|---------------------------------|----------------------------------------------|
+| API                      | App Server                      | Agent Server                                 |
+| Endpoint                 | `POST /v1/app-conversations`    | `POST /api/conversations/{id}/secrets`       |
+| Auth header              | `X-Access-Token: {api_key}`     | `X-Session-API-Key: {session_key}`           |
+| Timing                   | Before agent runs               | After conversation created                   |
+| Simplicity               | Single request                  | Multiple requests                            |
+| Mid-conversation updates | No                              | Yes                                          |
+| Works for Pattern A      | Yes                             | Yes                                          |
+| Works for Pattern B      | **Yes**                         | No                                           |
 
 ## Architecture
 
 ```
-┌─────────────────────┐     ┌─────────────────────┐     ┌─────────────────────┐
-│   App Server        │     │   Agent Server      │     │   MCP Server        │
-│ app.all-hands.dev   │     │ (per-sandbox URL)   │     │ (validates token)   │
-├─────────────────────┤     ├─────────────────────┤     ├─────────────────────┤
-│ POST /v1/sandboxes  │────▶│                     │     │                     │
-│ POST /v1/app-conv   │     │                     │     │                     │
-│                     │     │ POST /secrets       │────▶│ validate_token()    │
-│                     │     │ POST /events        │     │                     │
-└─────────────────────┘     └─────────────────────┘     └─────────────────────┘
-        │                           │                           │
-        │   Authorization:          │   X-Session-API-Key:      │   Authorization:
-        │   Bearer {api_key}        │   {session_api_key}       │   Bearer ${SECRET}
+┌─────────────────────┐   ┌──────────────────────┐   ┌─────────────────────┐
+│  App Server         │   │   Agent Server       │   │   MCP Server        │
+│  app.all-hands.dev  │   │   (per-sandbox URL)  │   │   (validates token) │
+├─────────────────────┤   ├──────────────────────┤   ├─────────────────────┤
+│ POST /v1/sandboxes  │──▶│                      │   │                     │
+│ POST /v1/app-conv   │   │                      │   │                     │
+│   • secrets         │   │  Plugin loader       │   │                     │
+│   • plugins ────────┼──▶│  ┌────────────────┐  │   │                     │
+│                     │   │  │ fetch from GH  │  │   │                     │
+│                     │   │  │ read .mcp.json │  │   │                     │
+│                     │   │  │ expand ${...}  │  │   │                     │
+│                     │   │  │   ↑ from       │  │   │                     │
+│                     │   │  │   secrets      │  │   │                     │
+│                     │   │  └───────┬────────┘  │   │                     │
+│                     │   │          │           │   │                     │
+│                     │   │          ▼           │   │                     │
+│                     │   │  MCP transport ──────┼──▶│ validate_token()    │
+│                     │   │  (Authorization:     │   │                     │
+│                     │   │   Bearer <secret>)   │   │                     │
+│                     │   │                      │   │                     │
+│                     │   │  POST /secrets ──── (Pattern A, after-start)   │
+│                     │   │  POST /events        │   │                     │
+└─────────────────────┘   └──────────────────────┘   └─────────────────────┘
+        │                         │                          │
+        │ X-Access-Token:         │ X-Session-API-Key:       │ Authorization:
+        │ {api_key}               │ {session_api_key}        │ Bearer ${MCP_SECRET_TOKEN}
 ```
 
-## Key Findings
+## Key findings
 
-1. **Two Different Conversation IDs**: The App Server and Agent Server use different IDs
-   for the same conversation. You must query the Agent Server to find the correct ID.
-
-2. **Two Authentication Schemes**:
+1. **Two different conversation IDs.** The App Server and the Agent Server use
+   different IDs for the same conversation. You must query the Agent Server to
+   find the correct ID for its endpoints.
+2. **Two authentication schemes.**
    - App Server: `X-Access-Token: {api_key}`
    - Agent Server: `X-Session-API-Key: {session_api_key}`
-
-3. **Secrets Endpoint** (Agent Server): `POST /api/conversations/{id}/secrets`
-   - Body: `{"secrets": {"KEY": "value"}}`
-   - Secrets become environment variables (`$KEY`) for **bash commands**
-
-4. **MCP Config Variable Expansion**:
-   - MCP configs support `${VARIABLE}` syntax
-   - With PR #14009 + SDK #2873: Secrets passed at conversation start ARE available for MCP config expansion
-   - This enables per-conversation MCP authentication tokens
+3. **Secrets endpoint (Agent Server):** `POST /api/conversations/{id}/secrets`
+   with body `{"secrets": {"KEY": "value"}}`. Secrets become environment
+   variables (`$KEY`) for bash commands.
+4. **`${...}` expansion only works when secrets are passed at start.** A plugin
+   loaded via `plugins: [...]` has its `.mcp.json` expanded against the
+   `secrets` field of the same `POST /v1/app-conversations` request. Post-hoc
+   injection via the Agent Server's `/secrets` endpoint is too late to influence
+   MCP transport setup.
 
 ## Files
 
-- `test_secrets_at_start.py` - **NEW**: Test secrets passed at conversation start (recommended)
-- `test_secrets.py` - Test secrets injected after conversation start (original approach)
-- `test_mcp_secrets_at_start.py` - **NEW**: Test MCP config variable expansion with secrets at start
-- `mcp_server.py` - Simple MCP server for testing token validation
-- `test_mcp_secrets.py` - (Legacy) Test for MCP with secrets injected after start
+| File                              | Purpose                                                                                   |
+|-----------------------------------|-------------------------------------------------------------------------------------------|
+| `test_secrets_at_start.py`        | **Pattern A**, at-start: secrets as bash env vars, passed in the start request.           |
+| `test_secrets.py`                 | **Pattern A**, after-start: secrets injected via Agent Server `/secrets`.                 |
+| `test_mcp_secrets_at_start.py`    | **Pattern B**, at-start: secrets + plugin in one request, MCP config expanded from them.  |
+| `test_mcp_secrets.py`             | **Pattern B**, after-start: legacy variant. Kept for reference.                           |
+| `test-plugin/.mcp.json`           | Plugin's MCP server registration with `${MCP_SERVER_URL}` / `${MCP_SECRET_TOKEN}`.        |
+| `test-plugin/.plugin/plugin.json` | Plugin manifest (name, version, author, license).                                          |
+| `test-plugin/SKILL.md`            | Human-readable doc the agent reads to understand the plugin.                              |
+| `mcp_server.py`                   | Stand-alone MCP server that validates the expected `Authorization: Bearer …` token.       |
 
 ## Usage
 
-### Test secrets at conversation start (NEW - Recommended)
+### Pattern A — secrets at conversation start (recommended)
 
 ```bash
-# Set your API key
 export OH_API_KEY="sk-oh-..."
 
-# Optional: Use a staging or feature deployment for testing
+# Optional: staging / feature deployment
 # export OH_API_URL="https://ohpr-14009-30.staging.all-hands.dev/api"
 
-# Optional: Use an existing running sandbox (faster, avoids cold start issues)
+# Optional: reuse an existing RUNNING sandbox (avoids cold start)
 # export OH_SANDBOX_ID="your-sandbox-id"
 
-# Run the test
 python test_secrets_at_start.py
-
-# Expected output:
-# ======================================================================
-#  PER-CONVERSATION SECRETS AT START TIME TEST
-#  Testing: secrets field in AppConversationStartRequest
-# ======================================================================
-#
-# [HH:MM:SS] Using API URL: https://app.all-hands.dev/api
-# [HH:MM:SS] Starting sandbox...
-# [HH:MM:SS]   Sandbox ID: ...
-# [HH:MM:SS] Waiting for sandbox to be ready...
-# [HH:MM:SS]   Status: STARTING
-# [HH:MM:SS]   Status: RUNNING
-# [HH:MM:SS]   Agent Server: https://xxxx.prod-runtime.all-hands.dev
-# [HH:MM:SS] Starting conversation with secrets field...
-# [HH:MM:SS]   Secret: TEST_API_SECRET='FUZZY_WUZZY_WAS_A_BE...'
-# [HH:MM:SS]   Response status: 200
-# ...
-# ======================================================================
-#  ✅ SUCCESS! Secrets field was accepted in AppConversationStartRequest!
-# ======================================================================
 ```
 
-### Test secrets after conversation start (Original)
+Expected output ends with:
+
+```
+======================================================================
+ ✅ SUCCESS! Secrets field was accepted in AppConversationStartRequest!
+======================================================================
+```
+
+### Pattern A — secrets after conversation start (legacy)
 
 ```bash
-# Set your API key
 export OH_API_KEY="sk-oh-..."
-
-# Run the test
 python test_secrets.py
 ```
 
-### Test MCP config variable expansion with secrets at start (NEW)
+### Pattern B — secrets + plugin at conversation start (recommended)
 
-This test verifies that secrets passed at conversation start are available for MCP config variable expansion:
+This test verifies that secrets passed at conversation start are available for
+MCP config variable expansion inside the plugin's `.mcp.json`.
 
 ```bash
-# Terminal 1: Start the MCP server
+# Terminal 1: start the MCP server
 python mcp_server.py --port 12000 --expected-token "per-conv-secret-xyz-123"
 
-# Terminal 2: Run the test
+# Terminal 2: run the test
 export OH_API_KEY="sk-oh-..."
-export OH_API_URL="https://ohpr-14009-30.staging.all-hands.dev/api"  # or your deployment
-export MCP_SERVER_URL="https://work-1-xxx.prod-runtime.all-hands.dev"  # where mcp_server.py is running
+export OH_API_URL="https://ohpr-14009-30.staging.all-hands.dev/api"   # or your deployment
+export MCP_SERVER_URL="https://work-1-xxx.prod-runtime.all-hands.dev" # where mcp_server.py is reachable
 
 python test_mcp_secrets_at_start.py
-
-# Expected output:
-# ======================================================================
-#   PER-CONVERSATION SECRETS TEST
-# ======================================================================
-# [HH:MM:SS] Starting sandbox...
-# [HH:MM:SS]   Sandbox ID: ...
-# [HH:MM:SS] Waiting for sandbox to be ready...
-# [HH:MM:SS]   Agent Server: https://xxxx.prod-runtime.all-hands.dev
-# [HH:MM:SS] Starting conversation...
-# [HH:MM:SS]   Conversation ID: ...
-# [HH:MM:SS] Injecting secret: TEST_SECRET_TOKEN=FUZZY_WUZZY...
-# [HH:MM:SS]   Result: {'success': True}
-# ...
-# ======================================================================
-#   ✅ SUCCESS! Per-conversation secret was injected and used!
-# ======================================================================
 ```
 
-## API Workflow
+Expected output ends with:
+
+```
+======================================================================
+  ✅ SUCCESS! Per-conversation secret was injected and used!
+======================================================================
+```
+
+What happened end-to-end:
+
+1. The test started a sandbox and called `POST /v1/app-conversations` with
+   `secrets={"MCP_SERVER_URL": ..., "MCP_SECRET_TOKEN": "per-conv-secret-xyz-123"}`
+   *and* `plugins=[{source: github:jpshackelford/oh-examples, repo_path: per-conversation-secrets/test-plugin}]`.
+2. OpenHands fetched `test-plugin/` from GitHub, read `.mcp.json`, and
+   substituted both `${MCP_SERVER_URL}` and `${MCP_SECRET_TOKEN}` from the
+   secrets above.
+3. The agent dialed the resulting URL with header
+   `Authorization: Bearer per-conv-secret-xyz-123`.
+4. `mcp_server.py` compared the token to its `--expected-token`, matched, and
+   returned a success result that the test then asserts on.
+
+## API workflow
 
 ```python
 # ============================================================
@@ -250,12 +358,17 @@ Headers: X-Access-Token: {api_key}
 GET /v1/sandboxes/search
 Headers: X-Access-Token: {api_key}
 → {items: [{id, status: "RUNNING", exposed_urls: [...], session_api_key}]}
-# Find AGENT_SERVER in exposed_urls array
+# Find AGENT_SERVER in exposed_urls
 
-# 3. Start conversation WITH secrets (new approach)
+# 3. Start conversation WITH secrets (and optionally a plugin)
 POST /v1/app-conversations
 Headers: X-Access-Token: {api_key}
-Body: {sandbox_id: "...", initial_message: {...}, secrets: {...}}
+Body: {
+  sandbox_id: "...",
+  initial_message: {...},
+  secrets: {...},
+  plugins: [{source: "github:...", repo_path: "..."}]   # for Pattern B
+}
 
 # ============================================================
 # AGENT SERVER API (from exposed_urls AGENT_SERVER)
@@ -269,37 +382,37 @@ Headers: X-Session-API-Key: {session_api_key}
 
 # 5. Send message / check events
 POST /api/conversations/{id}/events
-GET /api/conversations/{id}/events/search
+GET  /api/conversations/{id}/events/search
 Headers: X-Session-API-Key: {session_api_key}
 ```
 
-## API Reference
+## API reference
 
 ### App Server API
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/v1/sandboxes` | POST | Create sandbox → `{id, session_api_key, ...}` |
-| `/v1/sandboxes/search` | GET | List sandboxes → `{items: [...]}` |
-| `/v1/sandboxes/{id}` | DELETE | Delete sandbox (use `?sandbox_id=` query param) |
-| `/v1/app-conversations` | POST | Start conversation (supports `secrets` field) |
+| Endpoint                  | Method | Description                                                  |
+|---------------------------|--------|--------------------------------------------------------------|
+| `/v1/sandboxes`           | POST   | Create sandbox → `{id, session_api_key, ...}`                |
+| `/v1/sandboxes/search`    | GET    | List sandboxes → `{items: [...]}`                            |
+| `/v1/sandboxes/{id}`      | DELETE | Delete sandbox (use `?sandbox_id=` query param)              |
+| `/v1/app-conversations`   | POST   | Start conversation (supports `secrets` and `plugins` fields) |
 
 ### Agent Server API
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/conversations/search` | GET | List conversations → `{items: [...]}` |
-| `/api/conversations/{id}/secrets` | POST | Inject secrets → `{success: true}` |
-| `/api/conversations/{id}/events` | POST | Send user message |
-| `/api/conversations/{id}/events/search` | GET | List events → `{items: [...]}` |
+| Endpoint                                    | Method | Description                              |
+|---------------------------------------------|--------|------------------------------------------|
+| `/api/conversations/search`                 | GET    | List conversations → `{items: [...]}`    |
+| `/api/conversations/{id}/secrets`           | POST   | Inject secrets (Pattern A, after start)  |
+| `/api/conversations/{id}/events`            | POST   | Send user message                        |
+| `/api/conversations/{id}/events/search`     | GET    | List events → `{items: [...]}`           |
 
-### Getting the OpenAPI Specs
+### Getting the OpenAPI specs
 
 ```bash
 # App Server OpenAPI
 curl https://app.all-hands.dev/openapi.json
 
-# Agent Server OpenAPI (requires running sandbox)
+# Agent Server OpenAPI (requires a running sandbox)
 # 1. Create sandbox and wait for RUNNING status
 # 2. Get agent_server_url from exposed_urls (name="AGENT_SERVER")
 curl {agent_server_url}/openapi.json
@@ -307,4 +420,4 @@ curl {agent_server_url}/openapi.json
 
 ## License
 
-MIT License - see [LICENSE](../LICENSE) for details.
+MIT License — see [LICENSE](../LICENSE) for details.
