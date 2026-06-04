@@ -1,11 +1,23 @@
 # Start a Sandbox (no conversation)
 
-A ~25-line script that creates an OpenHands Cloud sandbox via the V1 API,
+A short script that creates an OpenHands Cloud sandbox via the V1 API,
 waits for it to reach `RUNNING`, then talks directly to the sandbox's
 agent-server REST API to run shell commands.
 
 No conversation is created — useful when you want a managed remote workspace
 to drive yourself (e.g. for tooling, batch jobs, or programmatic agents).
+
+Two versions are provided:
+
+- [`sandbox_demo_brief.py`](./sandbox_demo_brief.py) — ~25 lines,
+  one-numbered-step-per-block, minimal error handling. Best for quickly
+  understanding the API shape.
+- [`sandbox_demo.py`](./sandbox_demo.py) — same flow but split into a
+  `main()` function with docstrings and type hints, more in line with
+  the rest of the repo.
+
+Both do the same thing and both intentionally leave the sandbox running
+at the end.
 
 ## APIs used
 
@@ -59,11 +71,11 @@ You'll see two processes: a uvicorn parent and a worker.
 ```bash
 export OH_API_KEY=...       # your https://app.all-hands.dev API key
 pip install requests
-python sandbox_demo.py
+python sandbox_demo_brief.py   # or sandbox_demo.py
 ```
 
-The script intentionally **does not** delete the sandbox at the end so you
-can poke at it. Clean up with:
+Neither script deletes the sandbox at the end so you can poke at it.
+Clean up with:
 
 ```bash
 curl -X DELETE "https://app.all-hands.dev/api/v1/sandboxes/<sandbox_id>" \
