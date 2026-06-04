@@ -8,6 +8,7 @@ A collection of example code for working with the OpenHands API.
 |---------|-------------|
 | [conversation-metrics](./conversation-metrics/) | CLI tool to retrieve cost and token usage for conversations |
 | [per-conversation-secrets](./per-conversation-secrets/) | Inject per-conversation secrets via REST API |
+| [start-sandbox](./start-sandbox/) | Start a sandbox (no conversation) and run commands via the agent-server REST API |
 
 ## API Versions
 
