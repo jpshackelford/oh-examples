@@ -19,6 +19,10 @@ Two versions are provided:
 Both do the same thing and both intentionally leave the sandbox running
 at the end.
 
+> Want to go further? [`clone-and-attach`](../clone-and-attach/) builds on this
+> example: it clones a repo and runs its `.openhands/setup.sh` in the sandbox,
+> then **attaches a conversation** to the prepared sandbox.
+
 ## APIs used
 
 ### 1. Cloud App Server — manages the sandbox lifecycle
@@ -32,8 +36,11 @@ at the end.
 
 ### 2. Agent Server — runs inside the sandbox
 
-- Base URL: the entry in `sandbox.exposed_urls` with `name == "AGENT_SERVER"`
-  (internal port 8000, exposed publicly on a different port)
+- Base URL: the entry in `sandbox.exposed_urls` with `name == "AGENT_SERVER"`.
+  Inside the container the agent server listens on port **60000** (you'll see
+  that in the sample `ps -ef` output below and in the `port` field of the
+  `exposed_urls` entry); it is reverse-proxied to the public HTTPS URL, so you
+  always talk to it over `https://…` (port 443) — never the internal port.
 - Auth header: `X-Session-API-Key: <session_api_key>` returned by the
   sandbox-create call (different from your Cloud API key)
 - All routes are under `/api/...`. This example uses:
@@ -74,11 +81,22 @@ pip install requests
 python sandbox_demo_brief.py   # or sandbox_demo.py
 ```
 
+`sandbox_demo.py` also takes flags / env vars so you can reuse it as-is:
+
+| Flag | Env var | Default |
+|------|---------|---------|
+| `--api-key` | `OH_API_KEY` | — (required) |
+| `--base-url` | `OH_API_BASE` | `https://app.all-hands.dev` |
+| `--sandbox-spec-id` | `SANDBOX_SPEC_ID` | none (account default image) |
+| `--poll-timeout` | `POLL_TIMEOUT` | `180` (seconds) |
+
 Neither script deletes the sandbox at the end so you can poke at it.
-Clean up with:
+Clean up with the `DELETE` endpoint — note the sandbox id goes in **both** the
+path and a required `sandbox_id` query parameter:
 
 ```bash
-curl -X DELETE "https://app.all-hands.dev/api/v1/sandboxes/<sandbox_id>" \
+SID=<sandbox_id>
+curl -X DELETE "https://app.all-hands.dev/api/v1/sandboxes/${SID}?sandbox_id=${SID}" \
      -H "X-Session-API-Key: $OH_API_KEY"
 ```
 
