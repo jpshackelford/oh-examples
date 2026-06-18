@@ -10,6 +10,7 @@ A collection of example code for working with the OpenHands API.
 | [per-conversation-secrets](./per-conversation-secrets/) | Inject per-conversation secrets via REST API |
 | [start-sandbox](./start-sandbox/) | Start a sandbox (no conversation) and run commands via the agent-server REST API |
 | [clone-and-attach](./clone-and-attach/) | Clone a repo + run `.openhands/setup.sh` in a sandbox, then attach a conversation to it |
+| [upload-skills](./upload-skills/) | Upload a local agent-skills directory into a sandbox, then start a conversation that uses them |
 
 ## API Versions
 
