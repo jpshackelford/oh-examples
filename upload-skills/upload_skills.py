@@ -57,6 +57,12 @@ DEFAULT_MESSAGE = (
 # Where the archive lands on the sandbox before we extract it. /tmp is always
 # writable and is cleaned up by the script after extraction.
 REMOTE_ARCHIVE_PATH = "/tmp/oh-upload-skills.tar.gz"
+# Client-side HTTP timeout (seconds) for the quick app/agent server calls, so a
+# stalled network connection surfaces as an error instead of hanging forever.
+HTTP_TIMEOUT = 60
+# Uploads can be larger and slower than the control-plane calls, so give them a
+# more generous client-side timeout.
+UPLOAD_TIMEOUT = 300
 
 
 def parse_args() -> argparse.Namespace:
@@ -124,7 +130,12 @@ def parse_args() -> argparse.Namespace:
 def start_sandbox(base_url: str, headers: dict, spec_id: str | None) -> str:
     """POST /api/v1/sandboxes -> new sandbox id."""
     params = {"sandbox_spec_id": spec_id} if spec_id else None
-    resp = requests.post(f"{base_url}/api/v1/sandboxes", headers=headers, params=params)
+    resp = requests.post(
+        f"{base_url}/api/v1/sandboxes",
+        headers=headers,
+        params=params,
+        timeout=HTTP_TIMEOUT,
+    )
     resp.raise_for_status()
     return resp.json()["id"]
 
@@ -134,7 +145,10 @@ def wait_until_running(base_url: str, headers: dict, sid: str, timeout: int) -> 
     deadline = time.monotonic() + timeout
     while True:
         resp = requests.get(
-            f"{base_url}/api/v1/sandboxes", headers=headers, params={"id": sid}
+            f"{base_url}/api/v1/sandboxes",
+            headers=headers,
+            params={"id": sid},
+            timeout=HTTP_TIMEOUT,
         )
         resp.raise_for_status()
         results = resp.json()
@@ -172,7 +186,10 @@ def start_conversation(
         "title": title,
     }
     resp = requests.post(
-        f"{base_url}/api/v1/app-conversations", headers=headers, json=payload
+        f"{base_url}/api/v1/app-conversations",
+        headers=headers,
+        json=payload,
+        timeout=HTTP_TIMEOUT,
     )
     resp.raise_for_status()
     task = resp.json()
@@ -188,10 +205,17 @@ def start_conversation(
             f"{base_url}/api/v1/app-conversations/start-tasks",
             headers=headers,
             params={"ids": task_id},
+            timeout=HTTP_TIMEOUT,
         )
         resp.raise_for_status()
         items = resp.json()
-        item = items[0] if isinstance(items, list) else items
+        if isinstance(items, list):
+            if not items:
+                # Nothing back yet; keep polling until the deadline.
+                continue
+            item = items[0]
+        else:
+            item = items
         status = item.get("status")
         print("  start-task status:", status)
         if status == "ERROR":
@@ -216,7 +240,9 @@ def agent_server_url(sandbox: dict) -> str:
 
 def remote_home(agent_url: str, session: dict) -> str:
     """GET /api/file/home -> the sandbox user's home directory."""
-    resp = requests.get(f"{agent_url}/api/file/home", headers=session)
+    resp = requests.get(
+        f"{agent_url}/api/file/home", headers=session, timeout=HTTP_TIMEOUT
+    )
     resp.raise_for_status()
     return resp.json()["home"]
 
@@ -239,6 +265,7 @@ def upload_archive(
         headers=session,
         params={"path": remote_path},
         files={"file": (Path(remote_path).name, archive, "application/gzip")},
+        timeout=UPLOAD_TIMEOUT,
     )
     resp.raise_for_status()
 
@@ -249,6 +276,9 @@ def run_command(agent_url: str, session: dict, cmd: str, timeout: int = 120) -> 
         f"{agent_url}/api/bash/execute_bash_command",
         headers=session,
         json={"command": cmd, "timeout": timeout},
+        # Let the client read outlast the server-side command timeout so we don't
+        # abort a command that is still legitimately running.
+        timeout=timeout + 30,
     )
     resp.raise_for_status()
     return resp.json()
@@ -286,9 +316,13 @@ def summarise_local_skills(skills_dir: Path) -> None:
     print(f"  AgentSkills (SKILL.md): {len(skill_mds)}")
     for p in skill_mds[:10]:
         print(f"    - {p.parent.relative_to(skills_dir)}")
+    if len(skill_mds) > 10:
+        print(f"    ... and {len(skill_mds) - 10} more")
     print(f"  loose .md skills:       {len(loose_mds)}")
     for p in loose_mds[:10]:
         print(f"    - {p.relative_to(skills_dir)}")
+    if len(loose_mds) > 10:
+        print(f"    ... and {len(loose_mds) - 10} more")
     if not skill_mds and not loose_mds:
         print(
             "  warning: no SKILL.md or *.md files found — uploading anyway, but "
@@ -345,8 +379,11 @@ def main() -> None:
             f"tar -xzf {q_archive} -C {q_target} && "
             f"rm -f {q_archive} && "
             f"echo 'installed skills:' && "
-            f"find {q_target} -maxdepth 2 -name SKILL.md -printf '  %P\\n' "
-            f"2>/dev/null; true",
+            # Use a portable `find` (no GNU-only `-printf`): cd into the target
+            # so `find .` yields paths relative to it, then strip the leading
+            # './' and indent. Works on both GNU and BSD/macOS find.
+            f"(cd {q_target} && find . -maxdepth 2 -name SKILL.md 2>/dev/null "
+            f"| sed 's|^\\./||;s|^|  |'); true",
         ),
     )
 
