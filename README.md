@@ -11,6 +11,8 @@ A collection of example code for working with the OpenHands API.
 | [start-sandbox](./start-sandbox/) | Start a sandbox (no conversation) and run commands via the agent-server REST API |
 | [clone-and-attach](./clone-and-attach/) | Clone a repo + run `.openhands/setup.sh` in a sandbox, then attach a conversation to it |
 | [upload-skills](./upload-skills/) | Upload a local agent-skills directory into a sandbox, then start a conversation that uses them |
+| [load-plugin](./load-plugin/) | Minimal: start a conversation with a plugin pre-loaded via the REST API |
+| [launch-plugin-badge](./launch-plugin-badge/) | Build a no-code `/launch` link, HTML button, or README badge that loads a plugin |
 
 ## API Versions
 

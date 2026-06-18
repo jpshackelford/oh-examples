@@ -1,0 +1,194 @@
+# Load a plugin into a conversation (minimal)
+
+The smallest useful recipe for starting an OpenHands Cloud conversation that has
+a **plugin pre-loaded**, using only the V1 App Server REST API. One field —
+`plugins` — does the work.
+
+This example is **self-contained**: it ships its own plugin in
+[`dad-joke/`](./dad-joke/) and loads it straight from this repo on GitHub. No
+external marketplace, no API keys beyond your OpenHands key.
+
+> A plugin is a small git-hosted bundle of slash commands, skills, hooks, and/or
+> MCP servers (Claude Code "plugin marketplace" format). `dad-joke` ships one of
+> each kind we need: a `/dad-joke:about` slash command that tells a dad joke
+> about an animal, and a keyword-triggered skill that asks for your favorite
+> animal first.
+
+Want a **clickable link / README badge** instead of code? See the companion
+example [`launch-plugin-badge`](../launch-plugin-badge/), which builds on this
+one.
+
+## The one field that matters
+
+```python
+requests.post(
+    f"{base_url}/api/v1/app-conversations",
+    headers={"Authorization": f"Bearer {api_key}"},
+    json={
+        "plugins": [
+            {
+                "source": "github:jpshackelford/oh-examples",
+                "ref": "main",
+                "repo_path": "load-plugin/dad-joke",
+            }
+        ],
+        "initial_message": {
+            "role": "user",
+            "content": [{"type": "text", "text": "/dad-joke:about duck"}],
+        },
+    },
+)
+```
+
+A plugin spec has three parts:
+
+| Field | Meaning | Example |
+|-------|---------|---------|
+| `source` | Where the plugin lives | `github:jpshackelford/oh-examples` |
+| `ref` | Git ref/branch/tag | `main` |
+| `repo_path` | Plugin sub-directory within the source | `load-plugin/dad-joke` |
+
+> The plugin is fetched from the **`ref`** you name. While iterating on a
+> branch, pass `--ref your-branch` so the fetch finds your copy; it resolves to
+> `main` once merged.
+
+## Two ways to drive it
+
+The `initial_message` decides what happens once the plugin is loaded:
+
+1. **Run a skill immediately via an entry command.** Send the plugin's slash
+   command as the first message. The SDK registers `/dad-joke:about` as a
+   keyword trigger, so this tells a joke right away:
+
+   ```bash
+   python load_plugin.py --message "/dad-joke:about duck"
+   ```
+
+2. **Load the plugin, then prompt normally.** Send a natural-language message;
+   the plugin's skills are available for the agent to use when relevant. The
+   bundled skill fires on "dad joke", asks for your favorite animal, then
+   delivers:
+
+   ```bash
+   python load_plugin.py --message "Tell me a dad joke"
+   ```
+
+## How the call works
+
+`POST /api/v1/app-conversations` is **asynchronous**. It returns a *start task*,
+not a finished conversation. The script polls
+`GET /api/v1/app-conversations/start-tasks?ids=<task_id>` until the task yields
+an `app_conversation_id`, then prints the conversation URL.
+
+(Omitting `sandbox_id` from the request lets the server provision a fresh
+sandbox. To attach to a sandbox you prepared yourself, pass its id — see
+[`clone-and-attach`](../clone-and-attach/).)
+
+## Run it
+
+```bash
+pip install requests
+export OH_API_KEY="sk-oh-..."     # Cloud API key
+
+python load_plugin.py             # dad-joke + "/dad-joke:about duck"
+```
+
+### Options
+
+| Flag | Env var | Default |
+|------|---------|---------|
+| `--api-key` | `OH_API_KEY` | – (required) |
+| `--base-url` | `OH_API_BASE` | `https://app.all-hands.dev` |
+| `--source` | `PLUGIN_SOURCE` | `github:jpshackelford/oh-examples` |
+| `--ref` | `PLUGIN_REF` | `main` |
+| `--repo-path` | `PLUGIN_REPO_PATH` | `load-plugin/dad-joke` |
+| `--message` | `INITIAL_MESSAGE` | `/dad-joke:about duck` |
+| `--secret` | – | _(none)_ — repeatable `KEY=VALUE`; see below |
+| `--poll-timeout` | `POLL_TIMEOUT` | `240` |
+
+## Loading a private plugin
+
+The bundled plugin is public, but `source` also accepts a **full Git URL**, and a
+`${VAR}` placeholder in the `source` (or `ref`) is expanded against the
+conversation's secrets **just before** the repo is cloned — so you can fetch a
+private plugin without hard-coding a token.
+
+> **Version requirement.** Secret expansion in the plugin source landed in
+> [software-agent-sdk#3758](https://github.com/OpenHands/software-agent-sdk/pull/3758)
+> and ships in the **agent-server runtime
+> [`v1.29.0`](https://github.com/OpenHands/software-agent-sdk/releases/tag/v1.29.0)**
+> (released 2026-06-18). A conversation only gets the fix when its sandbox runs
+> `agent-server:1.29.0-python` or newer.
+>
+> In **OpenHands Enterprise** (tracked by the Replicated `openhands` chart
+> version), `0.7.65` is the first release to bundle that image — the VM-based
+> release being cut for it. Not yet on the Stable channel or OpenHands Cloud
+> (app.all-hands.dev) as of this writing.
+>
+> On older builds the `${VAR}` reaches `git clone` literally and a private
+> source fails at conversation start; a public `source` is unaffected.
+
+There are four ways to supply the credential — all reference it **by name** in
+the URL, so the raw token never has to appear in the `source`:
+
+| # | Where the token comes from | How you reference it |
+|---|----------------------------|----------------------|
+| 1 | Hard-coded literal token | the raw token in the URL (least desirable) |
+| 2 | A user-profile custom secret | `${MY_TOKEN}` |
+| 3 | A secret passed to **this** API call | send `secrets: {MY_TOKEN: …}`, reference `${MY_TOKEN}` |
+| 4 | An OpenHands-managed provider token | `${GITHUB_TOKEN}`, `${GITLAB_TOKEN}`, `${BITBUCKET_TOKEN}`, `${BITBUCKET_DATA_CENTER_TOKEN}` |
+
+This script demonstrates **scenario 3** with `--secret` (which adds a `secrets`
+field to the request):
+
+```bash
+python load_plugin.py \
+    --source 'https://x-access-token:${GIT_TOKEN}@github.com/me/private-plugins.git' \
+    --repo-path plugins/my-plugin \
+    --message '/my-plugin:start' \
+    --secret GIT_TOKEN="$GIT_TOKEN"
+```
+
+Scenario **4** needs no `--secret` at all: if you've connected GitHub/GitLab/
+Bitbucket to OpenHands, just reference e.g. `${GITHUB_TOKEN}` and the managed
+token is injected for you.
+
+Good to know:
+
+- **Braced `${VAR}` only** — a literal `$` in a token is never mangled.
+- **Secrets only, not host env** — host environment variables are never folded
+  into the URL (that would be a credential-exfiltration vector).
+- **Missing secret → left untouched** — the placeholder stays verbatim, so you
+  get a clear clone failure rather than a surprising default.
+- **Stays redacted** — the persisted plugin spec keeps the `${VAR}` placeholder,
+  not the secret value.
+- **HTTPS, not `ssh://`** — the credential travels inside the URL; SSH
+  authenticates out-of-band (a key), so there is no placeholder to expand.
+
+## The bundled plugin
+
+```
+dad-joke/
+├── .claude-plugin/
+│   └── plugin.json          # manifest: name, entry_command, parameters
+├── commands/
+│   └── about.md             # the /dad-joke:about slash command
+└── skills/
+    └── dad-joke/
+        └── SKILL.md         # keyword skill: asks your favorite animal first
+```
+
+## Related
+
+- [`launch-plugin-badge`](../launch-plugin-badge/) — turn this into a no-code
+  launch link, HTML button, or README badge.
+- [Plugin Marketplace](https://docs.openhands.dev/enterprise/plugin-marketplace)
+  — the **plugin directory**: a browseable catalog of plugins (served at
+  `/plugins`) loaded from a marketplace source repo.
+- [Plugins overview](https://docs.openhands.dev/overview/plugins) — what plugins
+  are and the format they follow.
+- [Plugin Launch Flow design doc](https://github.com/OpenHands/OpenHands/blob/main/enterprise/doc/design-doc/plugin-launch-flow.md)
+  — the full marketplace → frontend → app server → SDK journey.
+- [software-agent-sdk#3758](https://github.com/OpenHands/software-agent-sdk/pull/3758)
+  ([SDK v1.29.0](https://github.com/OpenHands/software-agent-sdk/releases/tag/v1.29.0))
+  — the secret expansion behind "Loading a private plugin".
