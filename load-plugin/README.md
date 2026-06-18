@@ -115,11 +115,15 @@ private plugin without hard-coding a token.
 
 > **Version requirement.** Secret expansion in the plugin source landed in
 > [software-agent-sdk#3758](https://github.com/OpenHands/software-agent-sdk/pull/3758)
-> and was released in **SDK [`v1.29.0`](https://github.com/OpenHands/software-agent-sdk/releases/tag/v1.29.0)**.
-> That SDK is referenced by the **OpenHands Enterprise** build on the **Unstable**
-> channel (`0.7.64`, tracked by the Replicated `openhands` chart version); `0.7.65`
-> is the VM-based Enterprise release being cut to carry it. It had not yet reached
-> OpenHands Cloud (app.all-hands.dev) or the Stable channel as of this writing.
+> and ships in the **agent-server runtime
+> [`v1.29.0`](https://github.com/OpenHands/software-agent-sdk/releases/tag/v1.29.0)**
+> (released 2026-06-18). A conversation only gets the fix when its sandbox runs
+> `agent-server:1.29.0-python` or newer.
+>
+> In **OpenHands Enterprise** (tracked by the Replicated `openhands` chart
+> version), `0.7.65` is the first release to bundle that image — the VM-based
+> release being cut for it. Not yet on the Stable channel or OpenHands Cloud
+> (app.all-hands.dev) as of this writing.
 >
 > On older builds the `${VAR}` reaches `git clone` literally and a private
 > source fails at conversation start; a public `source` is unaffected.
