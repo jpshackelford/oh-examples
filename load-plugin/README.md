@@ -111,8 +111,16 @@ python load_plugin.py             # dad-joke + "/dad-joke:about duck"
 The bundled plugin is public, but `source` also accepts a **full Git URL**, and a
 `${VAR}` placeholder in the `source` (or `ref`) is expanded against the
 conversation's secrets **just before** the repo is cloned — so you can fetch a
-private plugin without hard-coding a token. (Needs an agent server built on an
-SDK that includes [software-agent-sdk#3758](https://github.com/OpenHands/software-agent-sdk/pull/3758).)
+private plugin without hard-coding a token.
+
+> **Version requirement.** Secret expansion in the plugin source landed in
+> [software-agent-sdk#3758](https://github.com/OpenHands/software-agent-sdk/pull/3758)
+> and first ships in **OpenHands Enterprise `0.7.64`** (the Replicated `openhands`
+> chart version), via the **Unstable** channel. It had not yet reached OpenHands
+> Cloud (app.all-hands.dev) or the Stable channel as of this writing.
+>
+> On older builds the `${VAR}` reaches `git clone` literally and a private
+> source fails at conversation start; a public `source` is unaffected.
 
 There are four ways to supply the credential — all reference it **by name** in
 the URL, so the raw token never has to appear in the `source`:
