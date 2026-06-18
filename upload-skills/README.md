@@ -17,6 +17,14 @@ agent to use them *without* committing them to a repo or installing them by
 hand. This script drops them into the sandbox's **user skills directory** before
 the conversation starts, so the brand-new conversation loads them automatically.
 
+> **Most of the time you don't need this script.** The standard ways to give a
+> workspace skills are to **store them in your repository as a plugin** (e.g.
+> under `.openhands/skills/`) and **start the conversation with that plugin
+> reference**, or to run **`/add-skill <github-url>`** to add a skill to the
+> workspace. Reach for this example when you want to push *local, uncommitted*
+> skills straight into a sandbox programmatically — for automation, quick
+> experiments, or skills you're not ready to commit.
+
 ### Where do the skills go, and why there?
 
 When OpenHands starts a conversation it loads skills from several sources and
@@ -155,9 +163,20 @@ So a typical flow is: run this script once to seed a sandbox with your skills,
 set a grouping strategy in the UI, then just open new conversations normally and
 they'll already know your skills.
 
-(If you'd rather stay scripted, you can also target a specific RUNNING sandbox
-directly with `--sandbox-id <sandbox_id>` / `SANDBOX_ID` instead of relying on
-the grouping setting.)
+> **Caveat: grouping only reuses sandboxes that are still `RUNNING`.** When a new
+> conversation looks for a sandbox to join, the grouping logic considers
+> **running** sandboxes only. A sandbox that has gone **inactive (paused)** —
+> but is not yet deleted — is skipped, and a fresh, skill-less sandbox is
+> started instead; the paused one is *not* resumed for grouping. In other words,
+> the automatic skill inheritance above holds only while the seeded sandbox stays
+> running. Resuming an **existing** conversation still works (it already knows its
+> sandbox id and will resume the paused sandbox), and you can always force the
+> paused sandbox to be reused by targeting it explicitly with
+> `--sandbox-id <sandbox_id>` / `SANDBOX_ID`, which resumes it.
+
+(If you'd rather stay scripted, you can also target a specific sandbox directly
+with `--sandbox-id <sandbox_id>` / `SANDBOX_ID` instead of relying on the
+grouping setting — this resumes the sandbox if it is paused.)
 
 ### Skill format
 
