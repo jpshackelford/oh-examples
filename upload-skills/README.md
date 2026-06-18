@@ -154,25 +154,24 @@ controlled by the **Sandbox Grouping Strategy** setting under
   (in the UI or via the API) will **not** see the skills uploaded here.
 - **Any grouping strategy** (e.g. `Group by Newest`, `Add to Any`,
   `Least Recently Used`, `Fewest Conversations`): new conversations are added to
-  an existing RUNNING sandbox instead of a fresh one. Because every conversation
-  reloads skills from the sandbox home when it starts, conversations you create
-  **straight from the web UI** land on this skills-loaded sandbox and pick up the
-  uploaded skills automatically — no re-running this script needed.
+  an existing, still-running sandbox instead of a fresh one. Because every
+  conversation reloads skills from the sandbox home when it starts, the
+  conversations you create **straight from the web UI** land on this
+  skills-loaded sandbox and pick up the uploaded skills automatically — no
+  re-running this script needed.
 
 So a typical flow is: run this script once to seed a sandbox with your skills,
 set a grouping strategy in the UI, then just open new conversations normally and
 they'll already know your skills.
 
-> **Caveat: grouping only reuses sandboxes that are still `RUNNING`.** When a new
-> conversation looks for a sandbox to join, the grouping logic considers
-> **running** sandboxes only. A sandbox that has gone **inactive (paused)** —
-> but is not yet deleted — is skipped, and a fresh, skill-less sandbox is
-> started instead; the paused one is *not* resumed for grouping. In other words,
-> the automatic skill inheritance above holds only while the seeded sandbox stays
-> running. Resuming an **existing** conversation still works (it already knows its
-> sandbox id and will resume the paused sandbox), and you can always force the
-> paused sandbox to be reused by targeting it explicitly with
-> `--sandbox-id <sandbox_id>` / `SANDBOX_ID`, which resumes it.
+> **Caveat: this only works while the seeded sandbox is still running.** A new
+> conversation can only join a sandbox that is still running. If the seeded
+> sandbox has gone **inactive** (paused after a stretch of no activity, but not
+> yet deleted), a new conversation starts a *fresh* sandbox instead — without
+> your skills. Reopening an **existing** conversation still brings its sandbox
+> back (and your skills with it), and you can always reuse a specific sandbox —
+> even an inactive one — by passing `--sandbox-id <sandbox_id>`, which wakes it
+> up.
 
 (If you'd rather stay scripted, you can also target a specific sandbox directly
 with `--sandbox-id <sandbox_id>` / `SANDBOX_ID` instead of relying on the
