@@ -115,9 +115,11 @@ private plugin without hard-coding a token.
 
 > **Version requirement.** Secret expansion in the plugin source landed in
 > [software-agent-sdk#3758](https://github.com/OpenHands/software-agent-sdk/pull/3758)
-> and first ships in **OpenHands Enterprise `0.7.64`** (the Replicated `openhands`
-> chart version), via the **Unstable** channel. It had not yet reached OpenHands
-> Cloud (app.all-hands.dev) or the Stable channel as of this writing.
+> and is rolling out in **OpenHands Enterprise** (tracked by the Replicated
+> `openhands` chart version): it first appeared on the **Unstable** channel as
+> `0.7.64`, and `0.7.65` is the VM-based Enterprise release being cut to carry it.
+> It had not yet reached OpenHands Cloud (app.all-hands.dev) or the Stable channel
+> as of this writing.
 >
 > On older builds the `${VAR}` reaches `git clone` literally and a private
 > source fails at conversation start; a public `source` is unaffected.
