@@ -21,6 +21,11 @@ When opened, the frontend decodes `plugins`, shows a confirmation modal
 hand.** The user supplies their own auth by being logged in, so the link
 contains no secrets.
 
+> **Official docs:** [Plugin Launcher](https://docs.openhands.dev/openhands/usage/cloud/plugin-launcher)
+> is the reference for the `/launch` route — the `plugins`/`message` params,
+> how `parameters` become editable inputs, and a simpler unencoded format for
+> development. This example is a runnable companion to that page.
+>
 > Full end-to-end trace (marketplace → directory → frontend → app server → SDK):
 > [Plugin Launch Flow design doc](https://github.com/OpenHands/OpenHands/blob/main/enterprise/doc/design-doc/plugin-launch-flow.md).
 
@@ -118,6 +123,21 @@ modal before starting; the app server then formats the final values into the
 conversation's first message. (The SDK's `PluginSource` itself has no
 `parameters` field — see the design doc's "Parameter Journey".)
 
+### Simpler format for quick tests
+
+For local or staging experiments you can skip base64 entirely and pass
+unencoded query params — `plugin_source`, `plugin_ref`, `plugin_repo_path`:
+
+```
+https://app.all-hands.dev/launch?plugin_source=github:jpshackelford/oh-examples&plugin_ref=main&plugin_repo_path=launch-plugin-badge/dad-joke
+```
+
+The encoded `plugins` form is what you want for shareable badges — and it's the
+only one that supports multiple plugins (or pre-filled `parameters`) in a single
+link. Both formats are documented on the
+[Plugin Launcher](https://docs.openhands.dev/openhands/usage/cloud/plugin-launcher)
+page.
+
 ## Two variants
 
 ### 1. Run a skill on launch — entry command
@@ -199,4 +219,10 @@ print(html_button("Try my plugin", url))
 
 - [`load-plugin`](../load-plugin/) — the programmatic equivalent (the API call
   this link ultimately triggers).
+- [Plugin Launcher](https://docs.openhands.dev/openhands/usage/cloud/plugin-launcher)
+  — official docs for the `/launch` route.
+- [Plugins](https://docs.openhands.dev/overview/plugins) /
+  [Plugin Marketplace](https://docs.openhands.dev/enterprise/plugin-marketplace)
+  — what plugins are and how they're catalogued.
 - [Plugin Launch Flow design doc](https://github.com/OpenHands/OpenHands/blob/main/enterprise/doc/design-doc/plugin-launch-flow.md)
+  — the full marketplace → frontend → app server → SDK journey.

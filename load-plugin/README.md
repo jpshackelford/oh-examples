@@ -122,5 +122,9 @@ dad-joke/
 
 - [`launch-plugin-badge`](../launch-plugin-badge/) — turn this into a no-code
   launch link, HTML button, or README badge.
+- [Plugins](https://docs.openhands.dev/overview/plugins) — what plugins are and
+  the marketplace/plugin-directory format used here.
+- [SDK Plugins guide](https://docs.openhands.dev/sdk/guides/plugins) — loading
+  plugins directly from Python with the OpenHands SDK.
 - [Plugin Launch Flow design doc](https://github.com/OpenHands/OpenHands/blob/main/enterprise/doc/design-doc/plugin-launch-flow.md)
   — the full marketplace → frontend → app server → SDK journey.
