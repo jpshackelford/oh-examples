@@ -26,6 +26,17 @@ a duck. Override anything via flags or env vars.
     # Load the plugin, then drive it with a natural-language prompt. The bundled
     # skill asks for your favorite animal and then tells a joke about it:
     python load_plugin.py --message "Tell me a dad joke"
+
+A plugin can also live in a *private* repo. Put a ``${SECRET}`` placeholder in
+the source URL and pass the value with --secret; it is expanded against the
+conversation's secrets just before the plugin is fetched (see "Loading a private
+plugin" in the README):
+
+    python load_plugin.py \
+        --source 'https://x-access-token:${GIT_TOKEN}@github.com/me/plugins.git' \
+        --repo-path plugins/my-plugin \
+        --message '/my-plugin:start' \
+        --secret GIT_TOKEN="$GIT_TOKEN"
 """
 
 import argparse
@@ -81,6 +92,14 @@ def parse_args() -> argparse.Namespace:
         help="First message for the conversation (env: INITIAL_MESSAGE).",
     )
     p.add_argument(
+        "--secret",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Per-conversation secret (repeatable). Referenced as ${KEY} in the "
+        "plugin source/ref to fetch a private repo.",
+    )
+    p.add_argument(
         "--poll-timeout",
         type=int,
         default=int(os.environ.get("POLL_TIMEOUT", "240")),
@@ -95,11 +114,16 @@ def start_conversation_with_plugin(
     plugin: dict,
     message: str,
     timeout: int,
+    secrets: dict | None = None,
 ) -> str:
     """POST /api/v1/app-conversations, then poll the start task for its id.
 
     Omitting ``sandbox_id`` tells the server to provision a fresh sandbox for
     us. The single ``plugins`` field is all it takes to pre-load a plugin.
+
+    ``secrets`` (optional) are per-conversation secrets; a ``${KEY}`` reference
+    in the plugin's ``source``/``ref`` is expanded against them before the repo
+    is cloned, so a private plugin can be fetched without hard-coding a token.
     """
     payload = {
         "plugins": [plugin],
@@ -109,6 +133,8 @@ def start_conversation_with_plugin(
         },
         "title": "load-plugin demo",
     }
+    if secrets:
+        payload["secrets"] = secrets
     resp = requests.post(
         f"{base_url}/api/v1/app-conversations", headers=headers, json=payload
     )
@@ -152,13 +178,16 @@ def main() -> int:
         "ref": args.ref,
         "repo_path": args.repo_path,
     }
+    secrets = dict(kv.split("=", 1) for kv in args.secret) if args.secret else None
 
     print(f"Loading plugin: {plugin['source']}@{plugin['ref']}:{plugin['repo_path']}")
     print(f"Initial message: {args.message!r}")
+    if secrets:
+        print(f"Secrets provided: {', '.join(secrets)}")
     print("Creating conversation...")
 
     conv_id = start_conversation_with_plugin(
-        args.base_url, headers, plugin, args.message, args.poll_timeout
+        args.base_url, headers, plugin, args.message, args.poll_timeout, secrets
     )
 
     print("\nConversation ready.")

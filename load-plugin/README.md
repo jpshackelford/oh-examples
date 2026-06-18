@@ -103,7 +103,53 @@ python load_plugin.py             # dad-joke + "/dad-joke:about duck"
 | `--ref` | `PLUGIN_REF` | `main` |
 | `--repo-path` | `PLUGIN_REPO_PATH` | `load-plugin/dad-joke` |
 | `--message` | `INITIAL_MESSAGE` | `/dad-joke:about duck` |
+| `--secret` | – | _(none)_ — repeatable `KEY=VALUE`; see below |
 | `--poll-timeout` | `POLL_TIMEOUT` | `240` |
+
+## Loading a private plugin
+
+The bundled plugin is public, but `source` also accepts a **full Git URL**, and a
+`${VAR}` placeholder in the `source` (or `ref`) is expanded against the
+conversation's secrets **just before** the repo is cloned — so you can fetch a
+private plugin without hard-coding a token. (Needs an agent server built on an
+SDK that includes [software-agent-sdk#3758](https://github.com/OpenHands/software-agent-sdk/pull/3758).)
+
+There are four ways to supply the credential — all reference it **by name** in
+the URL, so the raw token never has to appear in the `source`:
+
+| # | Where the token comes from | How you reference it |
+|---|----------------------------|----------------------|
+| 1 | Hard-coded literal token | the raw token in the URL (least desirable) |
+| 2 | A user-profile custom secret | `${MY_TOKEN}` |
+| 3 | A secret passed to **this** API call | send `secrets: {MY_TOKEN: …}`, reference `${MY_TOKEN}` |
+| 4 | An OpenHands-managed provider token | `${GITHUB_TOKEN}`, `${GITLAB_TOKEN}`, `${BITBUCKET_TOKEN}`, `${BITBUCKET_DATA_CENTER_TOKEN}` |
+
+This script demonstrates **scenario 3** with `--secret` (which adds a `secrets`
+field to the request):
+
+```bash
+python load_plugin.py \
+    --source 'https://x-access-token:${GIT_TOKEN}@github.com/me/private-plugins.git' \
+    --repo-path plugins/my-plugin \
+    --message '/my-plugin:start' \
+    --secret GIT_TOKEN="$GIT_TOKEN"
+```
+
+Scenario **4** needs no `--secret` at all: if you've connected GitHub/GitLab/
+Bitbucket to OpenHands, just reference e.g. `${GITHUB_TOKEN}` and the managed
+token is injected for you.
+
+Good to know:
+
+- **Braced `${VAR}` only** — a literal `$` in a token is never mangled.
+- **Secrets only, not host env** — host environment variables are never folded
+  into the URL (that would be a credential-exfiltration vector).
+- **Missing secret → left untouched** — the placeholder stays verbatim, so you
+  get a clear clone failure rather than a surprising default.
+- **Stays redacted** — the persisted plugin spec keeps the `${VAR}` placeholder,
+  not the secret value.
+- **HTTPS, not `ssh://`** — the credential travels inside the URL; SSH
+  authenticates out-of-band (a key), so there is no placeholder to expand.
 
 ## The bundled plugin
 
@@ -127,7 +173,7 @@ dad-joke/
   `/plugins`) loaded from a marketplace source repo.
 - [Plugins overview](https://docs.openhands.dev/overview/plugins) — what plugins
   are and the format they follow.
-- [SDK Plugins guide](https://docs.openhands.dev/sdk/guides/plugins) — loading
-  plugins directly from Python with the OpenHands SDK.
 - [Plugin Launch Flow design doc](https://github.com/OpenHands/OpenHands/blob/main/enterprise/doc/design-doc/plugin-launch-flow.md)
   — the full marketplace → frontend → app server → SDK journey.
+- [software-agent-sdk#3758](https://github.com/OpenHands/software-agent-sdk/pull/3758)
+  — the secret expansion behind "Loading a private plugin".
