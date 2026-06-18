@@ -133,6 +133,24 @@ python upload_skills.py ~/my-skills \
     --message "Use my deploy-helper skill to outline a release plan."
 ```
 
+### Reusing a sandbox (and its loaded skills)
+
+By default every run provisions a **fresh sandbox**, uploads your skills into it,
+and starts a single conversation there — nothing is reused between runs. Once a
+run finishes, those skills still live in that sandbox's home directory, so the
+sandbox itself is a ready-made, skills-loaded environment.
+
+To take advantage of that, pass the sandbox's id with `--sandbox-id` (or
+`SANDBOX_ID`) to target the existing **RUNNING** sandbox instead of creating a
+new one. Because every conversation reloads skills from the sandbox home when it
+starts, each new conversation on that sandbox picks up the already-loaded
+skills — letting you launch several skills-aware conversations without
+provisioning (and waiting on) a new sandbox each time.
+
+```bash
+python upload_skills.py ./example-skills --sandbox-id <sandbox_id>
+```
+
 ### Skill format
 
 Each skill is a directory containing a `SKILL.md` with YAML frontmatter:
