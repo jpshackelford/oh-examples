@@ -24,6 +24,22 @@ contains no secrets.
 > Full end-to-end trace (marketplace → directory → frontend → app server → SDK):
 > [Plugin Launch Flow design doc](https://github.com/OpenHands/OpenHands/blob/main/enterprise/doc/design-doc/plugin-launch-flow.md).
 
+## Try it
+
+These are the actual badges this example generates — click one to launch a
+conversation with the bundled [`dad-joke`](./dad-joke/) plugin:
+
+[![Tell a dad joke](https://img.shields.io/badge/Tell%20a%20dad%20joke-blue)](https://app.all-hands.dev/launch?plugins=W3sic291cmNlIjogImdpdGh1YjpqcHNoYWNrZWxmb3JkL29oLWV4YW1wbGVzIiwgInJlZiI6ICJtYWluIiwgInJlcG9fcGF0aCI6ICJsYXVuY2gtcGx1Z2luLWJhZGdlL2RhZC1qb2tlIiwgInBhcmFtZXRlcnMiOiB7ImFuaW1hbCI6ICJkdWNrIn19XQ%3D%3D&message=%2Fdad-joke%3Aabout)
+&nbsp;
+[![Open with dad-joke loaded](https://img.shields.io/badge/Open%20with%20dad--joke%20loaded-blue)](https://app.all-hands.dev/launch?plugins=W3sic291cmNlIjogImdpdGh1YjpqcHNoYWNrZWxmb3JkL29oLWV4YW1wbGVzIiwgInJlZiI6ICJtYWluIiwgInJlcG9fcGF0aCI6ICJsYXVuY2gtcGx1Z2luLWJhZGdlL2RhZC1qb2tlIn1d)
+
+- **Tell a dad joke** — runs `/dad-joke:about` immediately ([variant 1](#1-run-a-skill-on-launch--entry-command)).
+- **Open with dad-joke loaded** — loads the plugin and waits for your prompt ([variant 2](#2-just-load-the-plugin--user-prompts-after)).
+
+> The badges fetch the plugin from this repo's **default branch**, so they work
+> once this example is merged to `main`. Testing from a branch? Regenerate them
+> with `--ref your-branch` (see below).
+
 ## Run it
 
 ```bash
