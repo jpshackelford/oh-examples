@@ -1,0 +1,166 @@
+# Upload a local skills directory, then start a conversation
+
+This example is a small command-line tool: you hand it a **local agent-skills
+directory** and it provisions a sandbox, copies your skills into the right place
+inside it, and starts a fresh conversation that can use them. It prints the URL
+of the conversation it just created.
+
+It builds on [`clone-and-attach`](../clone-and-attach/), which prepares a sandbox
+(clone + `setup.sh`) and then attaches a conversation. Here we prepare the
+sandbox by **uploading skills** instead. Read [`start-sandbox`](../start-sandbox/)
+first if the sandbox/agent-server split is new to you.
+
+## Why would I do this?
+
+You have skills authored locally (a folder of `SKILL.md` files) and you want an
+agent to use them *without* committing them to a repo or installing them by
+hand. This script drops them into the sandbox's **user skills directory** before
+the conversation starts, so the brand-new conversation loads them automatically.
+
+### Where do the skills go, and why there?
+
+When OpenHands starts a conversation it loads skills from several sources and
+merges them. **User skills** come from the sandbox user's home:
+
+- `~/.openhands/skills/`   ← this example's default target
+- `~/.agents/skills/`      ← newer AgentSkills location (use `--remote-skills-dir`)
+- `~/.openhands/microagents/` (legacy)
+
+Because the upload happens **before** the conversation is created, the loader
+picks the skills up for that conversation. (The start-task lifecycle even has a
+dedicated `SETTING_UP_SKILLS` phase.) Putting them under the user home — rather
+than a repo's `.openhands/skills/` — means they load regardless of whether a
+repository is selected.
+
+> Already-running conversations are **not** re-scanned. Upload skills first,
+> then start the conversation — which is exactly what this script does.
+
+## The flow
+
+```
+POST /api/v1/sandboxes                       # 1. start a sandbox (no conversation)
+GET  /api/v1/sandboxes?id=<id>               # 2. poll until status == RUNNING
+GET  {agent}/api/file/home                   # 3. resolve ~  (sandbox user's home)
+POST {agent}/api/file/upload?path=<tmp>      # 4a. upload one tar.gz of your skills
+POST {agent}/api/bash/execute_bash_command   # 4b. extract it into ~/.openhands/skills
+POST /api/v1/app-conversations               # 5. start a conversation (sandbox_id=<id>)
+GET  /api/v1/app-conversations/start-tasks   # 5b. poll for the app_conversation_id
+```
+
+Steps 1–2 and 5 use the **Cloud app server** (auth header
+`X-Session-API-Key: <OH_API_KEY>`). Steps 3–4 use the sandbox's **agent server**
+(auth header `X-Session-API-Key: <session_api_key>`, returned by the create
+call). The agent server is where file upload and shell execution live — the
+Cloud app server has no file-upload route.
+
+### Recursive copy without per-file round-trips
+
+Rather than upload files one at a time, the script tars the **contents** of your
+local directory (`arcname="."`) into a single `.tar.gz`, uploads that one
+archive, and extracts it with `tar -xzf ... -C <target>`. So a local layout
+like:
+
+```
+my-skills/
+├── code-review/SKILL.md
+└── deploy-helper/SKILL.md
+```
+
+ends up as `~/.openhands/skills/code-review/SKILL.md` and
+`~/.openhands/skills/deploy-helper/SKILL.md` in the sandbox.
+
+## Run it
+
+```bash
+export OH_API_KEY=...        # your https://app.all-hands.dev API key
+pip install requests
+
+# Zero-config: uploads the bundled example-skills/ and starts a conversation
+# that asks the agent to list the skills it can see.
+python upload_skills.py ./example-skills
+```
+
+Sample output:
+
+```
+local skills dir: /path/to/oh-examples/upload-skills/example-skills
+  AgentSkills (SKILL.md): 1
+    - hello-openhands
+  loose .md skills:       0
+sandbox: 1ho9eZpt4m27CC23XPdGcN
+  sandbox status: RUNNING
+agent: https://ahhygodzefollslv.prod-runtime.all-hands.dev
+
+=== upload skills -> /home/openhands/.openhands/skills ===
+  uploading 412 bytes -> /tmp/oh-upload-skills.tar.gz
+$ extract skills  (exit=0)
+installed skills:
+  hello-openhands/SKILL.md
+
+=== start conversation ===
+  start-task status: SETTING_UP_SKILLS
+  start-task status: STARTING_CONVERSATION
+  start-task status: READY
+
+Conversation started on your skills-loaded sandbox:
+  https://app.all-hands.dev/conversations/f041a2e252cf45b39a46a3189b2efce7
+```
+
+Open that URL and ask the agent to *"say hello"* — it should answer using the
+uploaded `hello-openhands` skill.
+
+## Point it at your own skills
+
+Every input is a flag with an environment-variable fallback, so the script is
+safe to drop into your own automation unchanged:
+
+| Flag | Env var | Default | Purpose |
+|------|---------|---------|---------|
+| `skills_dir` (positional) | — | — (required) | Local skills directory to upload |
+| `--api-key` | `OH_API_KEY` | — (required) | Cloud API key |
+| `--base-url` | `OH_API_BASE` | `https://app.all-hands.dev` | Cloud app server |
+| `--remote-skills-dir` | `REMOTE_SKILLS_DIR` | `~/.openhands/skills` | Destination in the sandbox (`~` expands to the sandbox home) |
+| `--message` | `INITIAL_MESSAGE` | a "list your skills" prompt | First message to the agent |
+| `--title` | `CONVERSATION_TITLE` | `upload-skills demo` | Conversation title |
+| `--sandbox-id` | `SANDBOX_ID` | none | Reuse a RUNNING sandbox instead of creating one |
+| `--sandbox-spec-id` | `SANDBOX_SPEC_ID` | account default | Runtime image to start |
+| `--poll-timeout` | `POLL_TIMEOUT` | `240` | Seconds to wait for readiness |
+
+```bash
+# Upload your own folder of SKILL.md skills and target the newer location.
+python upload_skills.py ~/my-skills \
+    --remote-skills-dir '~/.agents/skills' \
+    --message "Use my deploy-helper skill to outline a release plan."
+```
+
+### Skill format
+
+Each skill is a directory containing a `SKILL.md` with YAML frontmatter:
+
+```markdown
+---
+name: my-skill
+description: What it does and when to use it.
+---
+
+# My Skill
+
+Instructions for the agent...
+```
+
+Add an optional `triggers:` list to auto-activate a skill when keywords appear
+in a user message. See the bundled [`example-skills/`](./example-skills/) for a
+working sample.
+
+## Cleanup
+
+The sandbox is intentionally left running because a live conversation is now
+attached to it — deleting the sandbox ends that conversation. Delete it from the
+conversation UI, or via the API (the id goes in **both** the path and a required
+`sandbox_id` query parameter):
+
+```bash
+SID=<sandbox_id>
+curl -X DELETE "https://app.all-hands.dev/api/v1/sandboxes/${SID}?sandbox_id=${SID}" \
+     -H "X-Session-API-Key: $OH_API_KEY"
+```
