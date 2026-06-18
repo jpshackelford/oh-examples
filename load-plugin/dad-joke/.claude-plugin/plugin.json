@@ -1,0 +1,23 @@
+{
+  "name": "dad-joke",
+  "version": "1.0.0",
+  "description": "Tell a dad joke about any animal. A tiny self-contained plugin for the OpenHands API examples.",
+  "license": "MIT",
+  "keywords": ["dad-joke", "humor", "example", "demo"],
+  "parameters": {
+    "animal": {
+      "type": "string",
+      "description": "The animal to tell a dad joke about",
+      "required": false,
+      "default": "duck"
+    }
+  },
+  "entry_command": "about",
+  "examples": [
+    {
+      "title": "Dad joke about a duck",
+      "prompt": "/dad-joke:about duck",
+      "parameters": { "animal": "duck" }
+    }
+  ]
+}
