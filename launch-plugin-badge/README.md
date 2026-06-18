@@ -221,8 +221,11 @@ print(html_button("Try my plugin", url))
   this link ultimately triggers).
 - [Plugin Launcher](https://docs.openhands.dev/openhands/usage/cloud/plugin-launcher)
   — official docs for the `/launch` route.
-- [Plugins](https://docs.openhands.dev/overview/plugins) /
-  [Plugin Marketplace](https://docs.openhands.dev/enterprise/plugin-marketplace)
-  — what plugins are and how they're catalogued.
+- [Plugin Marketplace](https://docs.openhands.dev/enterprise/plugin-marketplace)
+  — the **plugin directory**: a browseable catalog (served at `/plugins`, with a
+  `/api/plugins` API) that builds launch links like these from a marketplace
+  source repo. This example is what that directory does, by hand.
+- [Plugins overview](https://docs.openhands.dev/overview/plugins) — what plugins
+  are and the format they follow.
 - [Plugin Launch Flow design doc](https://github.com/OpenHands/OpenHands/blob/main/enterprise/doc/design-doc/plugin-launch-flow.md)
-  — the full marketplace → frontend → app server → SDK journey.
+  — the full marketplace → directory → frontend → app server → SDK journey.
