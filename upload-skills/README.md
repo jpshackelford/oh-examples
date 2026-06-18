@@ -133,23 +133,31 @@ python upload_skills.py ~/my-skills \
     --message "Use my deploy-helper skill to outline a release plan."
 ```
 
-### Reusing a sandbox (and its loaded skills)
+### Reusing the sandbox so new conversations load these skills automatically
 
-By default every run provisions a **fresh sandbox**, uploads your skills into it,
-and starts a single conversation there — nothing is reused between runs. Once a
-run finishes, those skills still live in that sandbox's home directory, so the
-sandbox itself is a ready-made, skills-loaded environment.
+Once this script runs, the uploaded skills live in the sandbox's home directory,
+so the sandbox is now a ready-made, skills-loaded environment. Whether *new*
+conversations reuse it — and therefore inherit those skills for free — is
+controlled by the **Sandbox Grouping Strategy** setting under
+**Settings → Application**.
 
-To take advantage of that, pass the sandbox's id with `--sandbox-id` (or
-`SANDBOX_ID`) to target the existing **RUNNING** sandbox instead of creating a
-new one. Because every conversation reloads skills from the sandbox home when it
-starts, each new conversation on that sandbox picks up the already-loaded
-skills — letting you launch several skills-aware conversations without
-provisioning (and waiting on) a new sandbox each time.
+- **Default — `No Grouping (new sandbox per conversation)`:** every new
+  conversation gets its own fresh sandbox, so conversations you start later
+  (in the UI or via the API) will **not** see the skills uploaded here.
+- **Any grouping strategy** (e.g. `Group by Newest`, `Add to Any`,
+  `Least Recently Used`, `Fewest Conversations`): new conversations are added to
+  an existing RUNNING sandbox instead of a fresh one. Because every conversation
+  reloads skills from the sandbox home when it starts, conversations you create
+  **straight from the web UI** land on this skills-loaded sandbox and pick up the
+  uploaded skills automatically — no re-running this script needed.
 
-```bash
-python upload_skills.py ./example-skills --sandbox-id <sandbox_id>
-```
+So a typical flow is: run this script once to seed a sandbox with your skills,
+set a grouping strategy in the UI, then just open new conversations normally and
+they'll already know your skills.
+
+(If you'd rather stay scripted, you can also target a specific RUNNING sandbox
+directly with `--sandbox-id <sandbox_id>` / `SANDBOX_ID` instead of relying on
+the grouping setting.)
 
 ### Skill format
 
