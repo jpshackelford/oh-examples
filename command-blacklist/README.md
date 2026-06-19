@@ -1,0 +1,184 @@
+# Command Blacklist with Hooks
+
+A self-contained example showing how to use **PreToolUse hooks** in a plugin to **blacklist dangerous shell commands**. When the agent tries to execute a risky command, the hook blocks it with helpful (and slightly snarky) feedback.
+
+This example demonstrates the **blacklist approach**: block known dangerous patterns while allowing everything else to proceed normally.
+
+## What's in the Box
+
+The [`safety-guardian/`](./safety-guardian/) plugin bundles:
+
+- **Hooks** (`hooks/hooks.json`) - PreToolUse hook that intercepts terminal commands
+- **Skill** (`skills/safety-guardian/SKILL.md`) - Documentation about what's protected
+- **Plugin manifest** (`.claude-plugin/plugin.json`) - Standard Claude Code plugin format
+
+## How It Works
+
+```
+User: "Delete all files in /tmp with rm -rf"
+  ↓
+Agent: *prepares terminal command: rm -rf /tmp/*
+  ↓
+PreToolUse Hook: *intercepts before execution*
+  ├─ Checks command against blacklist patterns
+  ├─ Detects: "rm -rf" targeting system directory
+  └─ Returns exit code 2 (block) + snarky message
+  ↓
+Agent: *receives block + reason, explains to user*
+  ↓
+User: *sees explanation, no harm done*
+```
+
+## Protected Patterns
+
+The hook blocks:
+
+| Pattern | Why It's Dangerous | Example Block Message |
+|---------|-------------------|----------------------|
+| `rm -rf /...` | Recursive deletion of system directories | "Whoa there, friend! Trying to rm -rf a system directory is like playing Russian Roulette with all chambers loaded..." |
+| `chmod 777 /...` | Overly permissive file permissions | "chmod 777? Really? That's the security equivalent of leaving your front door open with a 'FREE STUFF' sign..." |
+| `dd of=/dev/sd*` | Writing to raw block devices | "Attempting to dd directly to a device? Bold move! But I'm not about to let you accidentally turn your storage into modern art..." |
+| `:(){:\|:&};:` | Fork bombs (process explosion) | "Nice try with the fork bomb! I appreciate the creativity, but I'm not going to help you DOS yourself..." |
+| `curl ... \| bash` | Piping untrusted scripts to shell | "Piping unknown scripts directly to bash? That's like accepting candy from strangers on the internet..." |
+
+All other commands work normally - only these specific dangerous patterns are blocked.
+
+## Try It
+
+### Option 1: Load via API
+
+Use the companion [`load-plugin`](../load-plugin/) example:
+
+```bash
+cd ../load-plugin
+python load_plugin.py \
+  --repo-path command-blacklist/safety-guardian \
+  --message "Delete all files in /tmp using rm -rf"
+
+# Expected: Hook blocks the command with a snarky explanation
+```
+
+### Option 2: Launch via Badge
+
+Click to test the hook:
+
+[![Try Safety Guardian](https://img.shields.io/badge/Try%20Safety%20Guardian-blue)](https://app.all-hands.dev/launch?plugins=W3sic291cmNlIjogImdpdGh1YjpqcHNoYWNrZWxmb3JkL29oLWV4YW1wbGVzIiwgInJlZiI6ICJtYWluIiwgInJlcG9fcGF0aCI6ICJjb21tYW5kLWJsYWNrbGlzdC9zYWZldHktZ3VhcmRpYW4ifV0%3D&message=Delete%20all%20files%20in%20%2Ftmp%20using%20rm%20-rf)
+
+> **Note:** Replace `ref: main` with your branch name if testing before merge:
+> `--ref add-hooks-examples`
+
+## The Hook
+
+The magic happens in [`hooks/hooks.json`](./safety-guardian/hooks/hooks.json):
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "terminal",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c '... pattern matching logic ...'",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**How it works:**
+
+1. **`PreToolUse`** - Runs **before** the terminal tool executes
+2. **`matcher: "terminal"`** - Only applies to shell commands (not file edits, etc.)
+3. **`type: "command"`** - Executes an inline shell script
+4. **Exit codes:**
+   - `0` = Allow the command
+   - `2` = **Block** the command (with reason in JSON output)
+   - Other = Log error, but allow (non-blocking)
+
+The inline bash script:
+- Reads the tool invocation JSON from stdin
+- Uses `grep -qE` to check for dangerous patterns
+- Outputs JSON with `decision: "deny"` and a `reason` if blocked
+- Returns exit code 2 to enforce the block
+
+## Blacklist vs. Whitelist
+
+This example uses a **blacklist** approach:
+
+- ✅ **Pro:** Most commands work normally
+- ✅ **Pro:** Easier to get started
+- ❌ **Con:** Can't catch every dangerous pattern
+- ❌ **Con:** Clever variations might slip through
+
+For high-security scenarios, see the companion [`command-whitelist`](../command-whitelist/) example that shows the **whitelist** approach (only allow explicitly approved commands).
+
+## Hook Types
+
+Hooks can intercept different lifecycle events:
+
+| Hook | When It Runs | Can Block? | Use Case |
+|------|--------------|------------|----------|
+| **PreToolUse** | Before tool execution | ✅ Yes (exit 2) | Command validation (this example) |
+| PostToolUse | After tool execution | ❌ No | Logging, metrics |
+| UserPromptSubmit | Before processing user message | ✅ Yes | Content filtering |
+| Stop | When agent tries to finish | ✅ Yes | Require artifacts |
+| SessionStart | When conversation starts | ❌ No | Setup, logging |
+| SessionEnd | When conversation ends | ❌ No | Cleanup |
+
+## Plugin Structure
+
+```
+safety-guardian/
+├── .claude-plugin/
+│   └── plugin.json          # Plugin metadata
+├── hooks/
+│   └── hooks.json           # PreToolUse hook definition
+└── skills/
+    └── safety-guardian/
+        └── SKILL.md         # Documentation (auto-loaded)
+```
+
+This follows the **Claude Code plugin format**, compatible with:
+- OpenHands Cloud plugin launcher
+- Claude Desktop plugin marketplace
+- Any system supporting the `.claude-plugin` spec
+
+## Related
+
+- [OpenHands Hooks Guide](https://docs.openhands.dev/sdk/guides/hooks.md) - Full hook documentation
+- [Plugin System](https://docs.openhands.dev/sdk/guides/plugins.md) - How plugins work
+- [`load-plugin`](../load-plugin/) - Programmatic plugin loading
+- [`launch-plugin-badge`](../launch-plugin-badge/) - No-code plugin launcher
+- [`command-whitelist`](../command-whitelist/) - Whitelist approach (opposite strategy)
+
+## Real-World Use Cases
+
+- **Onboarding agents** - Prevent trainees from dangerous operations
+- **Shared environments** - Protect against accidental damage
+- **Compliance** - Enforce security policies automatically
+- **Education** - Teach safe command practices
+- **Testing** - Prevent test scripts from harming the host
+
+## Extending the Example
+
+Want to add your own patterns? Edit `hooks/hooks.json` and add another `if` block:
+
+```bash
+# Block npm install without package-lock.json
+if echo "$input" | grep -q "npm install" && ! [ -f package-lock.json ]; then
+  cat << EOF
+{
+  "decision": "deny",
+  "reason": "📦 Hold up! Running npm install without a lock file? That's asking for dependency chaos. Please commit a package-lock.json first."
+}
+EOF
+  exit 2
+fi
+```
+
+The inline bash makes it easy to iterate without rebuilding images or restarting servers.

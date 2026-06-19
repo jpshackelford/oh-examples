@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "terminal",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'input=$(cat); command=$(echo \"$input\" | grep -o \"\\\\\"command\\\\\"[[:space:]]*:[[:space:]]*\\\\\"[^\\\\\"]*\" | sed \"s/\\\\\"command\\\\\"[[:space:]]*:[[:space:]]*\\\\\"//\" | awk \"{print \\$1}\"); allowed_commands=\"ls\\ncat\\ngrep\\nfind\\nhead\\ntail\\nwc\\necho\\npwd\\nwhoami\\ndate\\nuname\\ndf\\ndu\\ntree\\nfile\\nwhich\\nenv\\nprintenv\\nhistory\\nstat\"; if [ -z \"$command\" ]; then exit 0; fi; if echo \"$allowed_commands\" | grep -qx \"$command\"; then exit 0; fi; echo \"{\\\"decision\\\": \\\"deny\\\", \\\"reason\\\": \\\"🔒 STRICT MODE: The command '\"'\"'$command'\"'\"' is not in the whitelist. Only read-only operations are allowed: ls, cat, grep, find, head, tail, wc, echo, pwd, whoami, date, uname, df, du, tree, file, which, env, printenv, history, stat. If you need to modify files, please ask for permission to extend the whitelist.\\\"}\"; exit 2'",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
