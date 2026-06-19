@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "terminal",
+        "hooks": [
+          {
+            "type": "script",
+            "path": "hooks/scripts/validate_terminal.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "file_editor",
+        "hooks": [
+          {
+            "type": "script",
+            "path": "hooks/scripts/validate_file_editor.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
