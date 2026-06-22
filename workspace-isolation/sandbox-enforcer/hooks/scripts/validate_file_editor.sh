@@ -19,7 +19,7 @@ fi
 if echo "$cmd" | grep -qE "^(create|str_replace|insert|undo_edit)$"; then
     # Extract the path
     path=$(echo "$input" | grep -o '"path"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/"path"[[:space:]]*:[[:space:]]*"//' | sed 's/"$//')
-    
+
     # Empty path - block with error
     if [ -z "$path" ]; then
         cat << EOF
@@ -30,7 +30,7 @@ if echo "$cmd" | grep -qE "^(create|str_replace|insert|undo_edit)$"; then
 EOF
         exit 2
     fi
-    
+
     # Check if path is absolute and outside workspace
     if echo "$path" | grep -q "^/"; then
         # Absolute path - check if it's within workspace
@@ -52,7 +52,7 @@ EOF
             exit 2
         fi
     fi
-    
+
     # Check if path tries to escape with ../
     if echo "$path" | grep -qE "(^|/)\\.\\./"; then
         # This is a simplistic check - a proper implementation would resolve the path

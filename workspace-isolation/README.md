@@ -125,7 +125,7 @@ Add `# read-only` to your prompt:
 # ✓ Allowed - read-only access to system file
 cat /etc/os-release  # read-only
 
-# ✓ Allowed - check system information  
+# ✓ Allowed - check system information
 uname -a  # read-only
 
 # ✗ Still blocked - write operation

@@ -19,7 +19,7 @@ cmd_name=$(echo "$full_command" | awk '{print $1}')
 if echo "$cmd_name" | grep -qE "^(cd|pushd|popd)$"; then
     # Extract the target directory
     target=$(echo "$full_command" | awk '{for(i=2;i<=NF;i++) printf $i" "; print ""}' | sed 's/[[:space:]]*$//')
-    
+
     # Check if target starts with /, ~, or .. (absolute or parent paths)
     if echo "$target" | grep -qE "^(/|~|\.\.)" && [ "$has_readonly" != "yes" ]; then
         cat << EOF

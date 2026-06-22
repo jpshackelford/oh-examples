@@ -34,9 +34,9 @@ User: *sees which commands are allowed*
 
 Only these commands are allowed (all read-only operations):
 
-**File Operations:** `ls`, `cat`, `head`, `tail`, `file`  
-**Search & Filter:** `grep`, `find`, `wc`  
-**System Info:** `pwd`, `whoami`, `date`, `uname`, `df`, `du`, `stat`  
+**File Operations:** `ls`, `cat`, `head`, `tail`, `file`
+**Search & Filter:** `grep`, `find`, `wc`
+**System Info:** `pwd`, `whoami`, `date`, `uname`, `df`, `du`, `stat`
 **Utilities:** `echo`, `which`, `env`, `printenv`, `history`, `tree`
 
 Everything else is **blocked by default**.
@@ -121,7 +121,7 @@ find
 | **Whitelist** (this) | Deny by default, allow specific | ✅ **High** - Can't execute unexpected commands | ⚠️ **Limited** - Must pre-approve everything | High-security, read-only, educational |
 | **Blacklist** ([`command-blacklist`](../command-blacklist/)) | Allow by default, block specific | ⚠️ **Medium** - New patterns might slip through | ✅ **Full** - Everything works except blocked | General protection, development work |
 
-**Whitelist** = "Only these few things are allowed"  
+**Whitelist** = "Only these few things are allowed"
 **Blacklist** = "Everything is allowed except these specific things"
 
 ## When to Use Each Approach
