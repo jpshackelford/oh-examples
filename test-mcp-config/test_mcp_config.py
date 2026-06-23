@@ -43,6 +43,13 @@ Examples
     # ({"mcpServers": {"<name>": {"url": ..., "transport": "http"}, ...}}):
     python test_mcp_config.py --config my_mcp_config.json
 
+    # Test the servers actually saved in your account settings:
+    python test_mcp_config.py --from-settings
+
+    # See which servers are configured (no sandbox started), then test one:
+    python test_mcp_config.py --from-settings --list
+    python test_mcp_config.py --from-settings --server jira --server figma
+
     # Reuse a sandbox you already started (skips create + delete):
     python test_mcp_config.py --sandbox-id <id> --url https://mcp.example.com/mcp
 
@@ -133,15 +140,22 @@ def _kv_pairs(values: list[str] | None) -> dict[str, str]:
     return out
 
 
-def server_specs_from_args(args: argparse.Namespace) -> list[tuple[str, dict]]:
+def server_specs_from_args(
+    args: argparse.Namespace, base_url: str, app_headers: dict
+) -> list[tuple[str, dict]]:
     """Return a list of (name, server_spec) to test.
 
     A ``server_spec`` matches the ``server`` field of ``POST /api/mcp/test``:
     a remote spec ({type, url, headers, api_key}) or a stdio spec
     ({type, command, args, env, cwd}).
     """
+    if args.from_settings:
+        servers = fetch_settings_servers(base_url, app_headers, args.settings_url)
+        specs = [(name, _to_server_spec(cfg)) for name, cfg in servers.items()]
+        return _filter_by_name(specs, args.server)
+
     if args.config:
-        return _specs_from_config_file(args.config)
+        return _filter_by_name(_specs_from_config_file(args.config), args.server)
 
     if args.command:
         spec: dict = {
@@ -164,8 +178,51 @@ def server_specs_from_args(args: argparse.Namespace) -> list[tuple[str, dict]]:
         return [(args.name, spec)]
 
     raise SystemExit(
-        "error: provide one of --url, --command, or --config (see --help for examples)"
+        "error: provide one of --from-settings, --url, --command, or --config "
+        "(see --help for examples)"
     )
+
+
+def _filter_by_name(
+    specs: list[tuple[str, dict]], wanted: list[str] | None
+) -> list[tuple[str, dict]]:
+    """Keep only servers named in ``wanted`` (no filter -> keep all)."""
+    if not wanted:
+        return specs
+    by_name = dict(specs)
+    missing = [n for n in wanted if n not in by_name]
+    if missing:
+        raise SystemExit(
+            f"error: server(s) not found: {', '.join(missing)}. "
+            f"Available: {', '.join(by_name) or '(none)'}"
+        )
+    return [(n, by_name[n]) for n in wanted]
+
+
+def _to_server_spec(cfg: dict) -> dict:
+    """Map one stored/SDK server entry to a ``/api/mcp/test`` server spec.
+
+    Handles both stdio ({command, args, env, cwd}) and remote servers, and the
+    several spellings the settings layer uses for a remote bearer token
+    (``api_key`` or ``auth``) and transport (``transport`` or ``type``).
+    """
+    if "command" in cfg:
+        spec: dict = {"type": "stdio", "command": cfg["command"]}
+        for key in ("args", "env", "cwd"):
+            if cfg.get(key):
+                spec[key] = cfg[key]
+        return spec
+
+    spec = {
+        "type": cfg.get("transport") or cfg.get("type") or "shttp",
+        "url": cfg["url"],
+    }
+    if cfg.get("headers"):
+        spec["headers"] = cfg["headers"]
+    token = cfg.get("api_key") or cfg.get("auth")
+    if token:
+        spec["api_key"] = token
+    return spec
 
 
 def _specs_from_config_file(path: str) -> list[tuple[str, dict]]:
@@ -175,23 +232,31 @@ def _specs_from_config_file(path: str) -> list[tuple[str, dict]]:
     servers = data.get("mcpServers", data)
     if not isinstance(servers, dict) or not servers:
         raise SystemExit(f"error: no servers found in {path}")
+    return [(name, _to_server_spec(cfg)) for name, cfg in servers.items()]
 
-    specs: list[tuple[str, dict]] = []
-    for name, cfg in servers.items():
-        if "command" in cfg:
-            spec: dict = {"type": "stdio", "command": cfg["command"]}
-            for key in ("args", "env", "cwd"):
-                if cfg.get(key):
-                    spec[key] = cfg[key]
-        else:
-            # Remote server: pass the transport through as the spec type.
-            spec = {"type": cfg.get("transport", "http"), "url": cfg["url"]}
-            if cfg.get("headers"):
-                spec["headers"] = cfg["headers"]
-            if cfg.get("api_key"):
-                spec["api_key"] = cfg["api_key"]
-        specs.append((name, spec))
-    return specs
+
+def fetch_settings_servers(
+    base_url: str, app_headers: dict, settings_url: str | None
+) -> dict:
+    """GET the caller's settings and return agent_settings.mcp_config.mcpServers."""
+    url = settings_url or f"{base_url}/api/v1/settings"
+    resp = requests.get(url, headers=app_headers)
+    resp.raise_for_status()
+    mcp_config = (resp.json().get("agent_settings") or {}).get("mcp_config") or {}
+    servers = mcp_config.get("mcpServers", {})
+    if not servers:
+        raise SystemExit(
+            f"error: no MCP servers configured in settings ({url}). "
+            "Add one in the MCP settings UI first."
+        )
+    return servers
+
+
+def _redacted_target(spec: dict) -> str:
+    """A printable target string that never includes secrets."""
+    if spec.get("type") == "stdio":
+        return " ".join([spec["command"], *spec.get("args", [])])
+    return spec.get("url", "?")
 
 
 def test_one_server(
@@ -224,11 +289,14 @@ def test_one_server(
 
 def print_result(name: str, server_spec: dict, result: dict) -> bool:
     """Pretty-print one result. Returns True if the server is OK."""
-    target = server_spec.get("url") or server_spec.get("command", "?")
-    print(f"\n--- {name}  ({server_spec.get('type')}: {target}) ---")
+    label = f"{server_spec.get('type')}: {_redacted_target(server_spec)}"
+    print(f"\n--- {name}  ({label}) ---")
     if result.get("ok"):
         tools = result.get("tools", [])
-        print(f"  OK  connected; {len(tools)} tool(s): {', '.join(tools) or '(none)'}")
+        shown = ", ".join(tools[:12])
+        if len(tools) > 12:
+            shown += f", ... (+{len(tools) - 12} more)"
+        print(f"  OK  connected; {len(tools)} tool(s): {shown or '(none)'}")
         tr = result.get("tool_result")
         if tr is not None:
             flag = "ERROR" if tr.get("is_error") else "ok"
@@ -289,6 +357,25 @@ def parse_args() -> argparse.Namespace:
         help='SDK-style config file: {"mcpServers": {"name": {...}}}.',
     )
     p.add_argument(
+        "--from-settings",
+        action="store_true",
+        help="Test the servers in your stored agent_settings.mcp_config.",
+    )
+    p.add_argument(
+        "--settings-url",
+        help="Override the settings URL (default: {base-url}/api/v1/settings).",
+    )
+    p.add_argument(
+        "--server",
+        action="append",
+        help="Only test this server name (repeatable). Default: test all.",
+    )
+    p.add_argument(
+        "--list",
+        action="store_true",
+        help="List the selected servers and exit (no sandbox is started).",
+    )
+    p.add_argument(
         "--timeout",
         type=float,
         default=15.0,
@@ -311,12 +398,19 @@ def main() -> None:
     if not args.api_key:
         sys.exit("error: set --api-key or the OH_API_KEY environment variable")
 
-    specs = server_specs_from_args(args)
+    app_headers = {"X-Session-API-Key": args.api_key}
+    specs = server_specs_from_args(args, args.base_url, app_headers)
+
+    if args.list:
+        print(f"{len(specs)} server(s):")
+        for name, spec in specs:
+            print(f"  - {name}  ({spec.get('type')}: {_redacted_target(spec)})")
+        sys.exit(0)
+
     tool_call = None
     if args.tool_call:
         tool_call = {"name": args.tool_call, "arguments": _kv_pairs(args.tool_arg)}
 
-    app_headers = {"X-Session-API-Key": args.api_key}
     created = False
     sandbox_id = args.sandbox_id
     failures = 0

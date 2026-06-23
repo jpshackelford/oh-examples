@@ -83,9 +83,34 @@ python test_mcp_config.py --command npx --arg -y --arg some-mcp-server
 # Test every server in an SDK-style config file
 python test_mcp_config.py --config my_mcp_config.json
 
+# Test the servers actually saved in your account settings
+python test_mcp_config.py --from-settings
+
 # Reuse a sandbox you already started (skips create + delete)
 python test_mcp_config.py --sandbox-id <id> --url https://mcp.example.com/mcp
 ```
+
+### Testing your saved settings (and picking from multiple servers)
+
+`--from-settings` reads `agent_settings.mcp_config` from `GET /api/v1/settings`
+(handling the stored `auth` / `transport` shape, including bearer tokens) and,
+by default, **tests every server** you have configured.
+
+When several servers are installed you can see the options and target a subset:
+
+```bash
+# List configured servers without starting a sandbox (no secrets printed)
+python test_mcp_config.py --from-settings --list
+
+# Test only specific servers by name (repeatable)
+python test_mcp_config.py --from-settings --server jira --server figma
+```
+
+> MCP config is a **single shared map** (`mcp_config.mcpServers`) — it is not
+> split across LLM/settings profiles, so "multiple installed" means multiple
+> servers in that one map. Use `--list` to discover names, then `--server` to
+> pick. Point `--settings-url` at an org/self-hosted settings endpoint if your
+> config lives somewhere other than `{base-url}/api/v1/settings`.
 
 `--config` accepts an SDK-style file (the same `mcpServers` shape returned by
 `GET /api/v1/settings` under `agent_settings.mcp_config`):
