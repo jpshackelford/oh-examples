@@ -8,8 +8,11 @@ Based on the production implementation in [jpshackelford/lxa](https://github.com
 
 The [`sandbox-enforcer/`](./sandbox-enforcer/) plugin bundles:
 
-- **Hook scripts** (`hooks/scripts/*.sh`) - Bash scripts that validate terminal and file_editor operations
-- **Hooks manifest** (`hooks/hooks.json`) - Configures PreToolUse hooks
+- **Hooks manifest** (`hooks/hooks.json`) - Two PreToolUse hooks (one for `terminal`,
+  one for `file_editor`) whose validation logic is **inlined** as POSIX-sh `command`s
+- **Reference scripts** (`hooks/scripts/*.sh`) - The same logic as standalone files,
+  kept for readability/diffing (see the note under [Hook Scripts](#hook-scripts) on why
+  the manifest inlines them rather than referencing these files)
 - **Skill** (`skills/sandbox-enforcer/SKILL.md`) - Documentation about isolation rules
 - **Plugin manifest** (`.claude-plugin/plugin.json`) - Standard Claude Code plugin format
 
@@ -136,6 +139,16 @@ The hook detects the `# read-only` comment and allows non-destructive operations
 
 ## Hook Scripts
 
+> **Inline, not referenced.** When a plugin's PreToolUse hook fires, the hook
+> runner executes the `command` through `/bin/sh -c` with the working directory
+> set to the **agent's workspace**, not the plugin directory — and there is no
+> plugin-root path variable for hooks. A relative `hooks/scripts/validate_*.sh`
+> therefore won't resolve at runtime, and `{"type": "script", "path": ...}` is
+> **not** a supported hook type (only `command`, `prompt`, `agent`). So
+> `hooks/hooks.json` **inlines** each validator as a POSIX-sh `command`. The
+> `.sh` files below are byte-for-byte the same logic, kept as readable reference
+> (and easy to lint/diff); edit them and the inline `command` together.
+
 ### 1. Terminal Validation (`validate_terminal.sh`)
 
 Checks terminal commands for:
@@ -194,16 +207,18 @@ sandbox-enforcer/
 ├── .claude-plugin/
 │   └── plugin.json              # Plugin metadata
 ├── hooks/
-│   ├── hooks.json               # Hook configuration (references scripts)
+│   ├── hooks.json               # Hook config (validators inlined as POSIX-sh commands)
 │   └── scripts/
-│       ├── validate_terminal.sh     # Terminal command validation
-│       └── validate_file_editor.sh  # File editor validation
+│       ├── validate_terminal.sh     # Reference copy of the terminal validator
+│       └── validate_file_editor.sh  # Reference copy of the file_editor validator
 └── skills/
     └── sandbox-enforcer/
         └── SKILL.md             # Documentation (auto-loaded)
 ```
 
-This follows the **Claude Code plugin format** with external script files for better maintainability.
+This follows the **Claude Code plugin format**. The validation logic lives inline
+in `hooks.json` (so it resolves at runtime as a plugin); the `scripts/*.sh` files
+hold the identical logic for readability.
 
 ## Comparison with Other Examples
 
@@ -259,17 +274,18 @@ For production use, see the full [Python implementation in lxa](https://github.c
 
 ## Extending the Example
 
-Want to add more restrictions? Edit the script files:
+Want to add more restrictions? Edit the inlined `command` in `hooks/hooks.json`
+(and keep the reference `scripts/*.sh` in sync):
 
-```bash
-# In validate_terminal.sh, add more blocked commands:
-if echo "$cmd_name" | grep -qE "^(rm|rmdir|mv|cp|chmod|chown|mkdir|touch|dd|ln|npm|pip)$"; then
-    # Block npm and pip too
-    ...
+```sh
+# Add more blocked write commands, e.g. npm and pip:
+if printf '%s' "$cmd_name" | grep -qE "^(rm|rmdir|mv|cp|chmod|chown|mkdir|touch|dd|ln|npm|pip)$"; then
+    # ...
 fi
 ```
 
-External scripts are easier to maintain than inline JSON-escaped bash!
+Keep the logic POSIX-sh and inline so it runs correctly when loaded as a plugin
+(see the note under [Hook Scripts](#hook-scripts)).
 
 ## Related
 

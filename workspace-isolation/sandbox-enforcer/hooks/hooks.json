@@ -5,8 +5,8 @@
         "matcher": "terminal",
         "hooks": [
           {
-            "type": "script",
-            "path": "hooks/scripts/validate_terminal.sh",
+            "type": "command",
+            "command": "input=$(cat)\nworkspace=\"${OPENHANDS_PROJECT_DIR:-$PWD}\"\n\n# Read-only escape hatch: \"# read-only\" anywhere in the command.\nhas_readonly=no\nif echo \"$input\" | grep -qi \"#[[:space:]]*read-only\"; then\nhas_readonly=yes\nfi\n\nfull_command=$(printf '%s' \"$input\" | sed -n 's/.*\"command\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' | head -n1)\ncmd_name=$(printf '%s' \"$full_command\" | awk '{print $1}')\n\n# Navigation out of the workspace.\nif printf '%s' \"$cmd_name\" | grep -qE \"^(cd|pushd|popd)$\"; then\ntarget=$(printf '%s' \"$full_command\" | awk '{$1=\"\"; sub(/^ /,\"\"); print}')\nif printf '%s' \"$target\" | grep -qE \"^(/|~|\\.\\.)\" && [ \"$has_readonly\" != yes ]; then\ncat <<EOF\n{\"decision\": \"deny\", \"reason\": \"🚧 WORKSPACE ISOLATION: Cannot navigate outside your workspace ($workspace). Attempted: $cmd_name $target. Add a # read-only comment to your command if you only need to READ outside the workspace.\"}\nEOF\nexit 2\nfi\nfi\n\n# Write commands targeting an absolute/home path outside the workspace.\nif printf '%s' \"$cmd_name\" | grep -qE \"^(rm|rmdir|mv|cp|chmod|chown|mkdir|touch|dd|ln)$\"; then\nif printf '%s' \"$full_command\" | grep -qE \"(^|[[:space:]])(/|~)\" && [ \"$has_readonly\" != yes ]; then\nif ! printf '%s' \"$full_command\" | grep -qF \"$workspace\"; then\ncat <<EOF\n{\"decision\": \"deny\", \"reason\": \"🚧 WORKSPACE ISOLATION: Cannot modify files outside your workspace ($workspace). Command: $cmd_name. Use a path inside the workspace, or add a # read-only comment if you are only reading.\"}\nEOF\nexit 2\nfi\nfi\nfi\n\n# Output redirects to a path outside the workspace.\nif printf '%s' \"$full_command\" | grep -qE \"[0-9]*>{1,2}[[:space:]]*(/|~)\"; then\nif ! printf '%s' \"$full_command\" | grep -qF \"$workspace\" && [ \"$has_readonly\" != yes ]; then\ncat <<EOF\n{\"decision\": \"deny\", \"reason\": \"🚧 WORKSPACE ISOLATION: Cannot redirect output to a file outside your workspace ($workspace).\"}\nEOF\nexit 2\nfi\nfi\n\nexit 0\n",
             "timeout": 5
           }
         ]
@@ -15,8 +15,8 @@
         "matcher": "file_editor",
         "hooks": [
           {
-            "type": "script",
-            "path": "hooks/scripts/validate_file_editor.sh",
+            "type": "command",
+            "command": "input=$(cat)\nworkspace=\"${OPENHANDS_PROJECT_DIR:-$PWD}\"\n\ncmd=$(printf '%s' \"$input\" | sed -n 's/.*\"command\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' | head -n1)\n\n# view is read-only and always allowed.\nif [ \"$cmd\" = view ]; then\nexit 0\nfi\n\nif printf '%s' \"$cmd\" | grep -qE \"^(create|str_replace|insert|undo_edit)$\"; then\npath=$(printf '%s' \"$input\" | sed -n 's/.*\"path\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' | head -n1)\n\nif [ -z \"$path\" ]; then\ncat <<EOF\n{\"decision\": \"deny\", \"reason\": \"🚧 WORKSPACE ISOLATION: file_editor command $cmd requires a path.\"}\nEOF\nexit 2\nfi\n\n# Absolute path must be inside the workspace.\ncase \"$path\" in\n/*)\ncase \"$path\" in\n\"$workspace\"|\"$workspace\"/*) : ;;\n*)\ncat <<EOF\n{\"decision\": \"deny\", \"reason\": \"🚧 WORKSPACE ISOLATION: file_editor $cmd blocked - path $path is outside your workspace ($workspace). Use a path inside the workspace, or use view for read-only access.\"}\nEOF\nexit 2\n;;\nesac\n;;\nesac\n\n# Reject parent-directory traversal.\ncase \"$path\" in\n../*|*/../*|*/..)\ncat <<EOF\n{\"decision\": \"deny\", \"reason\": \"🚧 WORKSPACE ISOLATION: file_editor $cmd blocked - path $path uses parent-directory (..) traversal which may escape the workspace.\"}\nEOF\nexit 2\n;;\nesac\nfi\n\nexit 0\n",
             "timeout": 5
           }
         ]

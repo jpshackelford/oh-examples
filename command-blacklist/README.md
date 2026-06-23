@@ -80,7 +80,7 @@ The magic happens in [`hooks/hooks.json`](./safety-guardian/hooks/hooks.json):
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c '... pattern matching logic ...'",
+            "command": "input=$(cat)\n# ... POSIX-sh pattern matching ...\nexit 0",
             "timeout": 5
           }
         ]
@@ -94,17 +94,28 @@ The magic happens in [`hooks/hooks.json`](./safety-guardian/hooks/hooks.json):
 
 1. **`PreToolUse`** - Runs **before** the terminal tool executes
 2. **`matcher: "terminal"`** - Only applies to shell commands (not file edits, etc.)
-3. **`type: "command"`** - Executes an inline shell script
+3. **`type: "command"`** - The `command` is a shell script run by the hook runner
+   (via `/bin/sh -c`). Keep it POSIX-compatible and **inline** — see the note below
+   on why these examples don't reference external `.sh` files.
 4. **Exit codes:**
    - `0` = Allow the command
    - `2` = **Block** the command (with reason in JSON output)
    - Other = Log error, but allow (non-blocking)
 
-The inline bash script:
-- Reads the tool invocation JSON from stdin
+The inline script:
+- Reads the tool invocation JSON from stdin (`input=$(cat)`)
 - Uses `grep -qE` to check for dangerous patterns
-- Outputs JSON with `decision: "deny"` and a `reason` if blocked
+- Prints `{"decision": "deny", "reason": "..."}` to stdout if blocked
 - Returns exit code 2 to enforce the block
+
+> **Why inline (not a `bash -c '...'` wrapper or an external script)?** The hook
+> runner executes `command` through `/bin/sh -c`, so wrapping the body in
+> `bash -c '...'` makes any apostrophe in a message (`I've`, `that's`) terminate
+> the quote and break the script. We also can't point `command` at a bundled
+> `hooks/scripts/*.sh`: when this runs as a **plugin**, hooks execute with the
+> working directory set to the agent's workspace (not the plugin directory) and
+> there is no plugin-root path variable, so a relative script path won't resolve.
+> Inlining a plain POSIX-sh script avoids both traps.
 
 ## Blacklist vs. Whitelist
 

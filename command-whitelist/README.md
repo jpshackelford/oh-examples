@@ -83,7 +83,7 @@ The magic happens in [`hooks/hooks.json`](./strict-mode/hooks/hooks.json):
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c '... whitelist checking logic ...'",
+            "command": "input=$(cat)\n# ... POSIX-sh whitelist check ...\nexit 0",
             "timeout": 5
           }
         ]
@@ -97,21 +97,17 @@ The magic happens in [`hooks/hooks.json`](./strict-mode/hooks/hooks.json):
 
 1. **`PreToolUse`** - Runs **before** the terminal tool executes
 2. **`matcher: "terminal"`** - Only applies to shell commands
-3. **Inline bash script:**
+3. **Inline POSIX-sh script** (run via `/bin/sh -c`; kept inline rather than a
+   `bash -c '...'` wrapper or an external `.sh` file — see the note in the
+   [command-blacklist README](../command-blacklist/README.md#the-hook) for why):
    - Extracts the command name from the JSON input
    - Checks if it's in the hardcoded whitelist
-   - Returns `exit 0` (allow) or `exit 2` (block)
+   - Returns `exit 0` (allow) or `exit 2` (block, with a `{"decision":"deny",...}` reason)
 
-The whitelist is maintained as a simple newline-separated list in the bash script:
+The whitelist is maintained as a simple space-separated list in the script:
 
-```bash
-allowed_commands="
-ls
-cat
-grep
-find
-# ... etc ...
-"
+```sh
+allowed="ls cat grep find head tail wc echo pwd whoami date uname df du tree file which env printenv history stat"
 ```
 
 ## Whitelist vs. Blacklist
@@ -142,17 +138,11 @@ find
 
 ## Extending the Whitelist
 
-To allow additional commands, edit `hooks/hooks.json`:
+To allow additional commands, edit the `allowed` list in `hooks/hooks.json`
+(add the command name, space-separated):
 
-```bash
-allowed_commands="
-ls
-cat
-grep
-git        # Add git commands
-python     # Add python execution
-npm        # Add npm (if you trust it)
-"
+```sh
+allowed="ls cat grep find ... git python npm"
 ```
 
 Each command name is matched exactly - no wildcards or partial matches. For commands with subcommands (like `git clone`), you'll need to whitelist the main command (`git`) and handle subcommand validation separately if needed.

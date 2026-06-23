@@ -1,85 +1,49 @@
-#!/bin/bash
-# PreToolUse hook: Validate terminal commands stay within workspace
-# Based on jpshackelford/lxa sandbox isolation hook
-
+#!/bin/sh
+# PreToolUse hook (reference copy of the logic inlined in ../hooks.json)
+# Validate terminal commands stay within the workspace.
 input=$(cat)
-
-# Get workspace directory from environment (OPENHANDS_PROJECT_DIR or fall back to PWD)
 workspace="${OPENHANDS_PROJECT_DIR:-$PWD}"
 
-# Check for # read-only escape hatch (allows read operations outside workspace)
-has_readonly=$(echo "$input" | grep -qi "#[[:space:]]*read-only" && echo "yes" || echo "no")
-
-# Extract the command name (simplified - just get first word from command field)
-command_field=$(echo "$input" | grep -o '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1)
-full_command=$(echo "$command_field" | sed 's/"command"[[:space:]]*:[[:space:]]*"//' | sed 's/"$//')
-cmd_name=$(echo "$full_command" | awk '{print $1}')
-
-# Block navigation commands that try to leave workspace
-if echo "$cmd_name" | grep -qE "^(cd|pushd|popd)$"; then
-    # Extract the target directory
-    target=$(echo "$full_command" | awk '{for(i=2;i<=NF;i++) printf $i" "; print ""}' | sed 's/[[:space:]]*$//')
-
-    # Check if target starts with /, ~, or .. (absolute or parent paths)
-    if echo "$target" | grep -qE "^(/|~|\.\.)" && [ "$has_readonly" != "yes" ]; then
-        cat << EOF
-{
-  "decision": "deny",
-  "reason": "🚧 WORKSPACE ISOLATION: Cannot navigate outside your workspace directory.
-
-Your workspace: $workspace
-Attempted: $cmd_name $target
-
-All work must stay within the assigned workspace to avoid conflicts with other parallel conversations.
-
-💡 Tip: Add '# read-only' to your prompt if you only need to READ files outside the workspace."
-}
-EOF
-        exit 2
-    fi
+# Read-only escape hatch: "# read-only" anywhere in the command.
+has_readonly=no
+if echo "$input" | grep -qi "#[[:space:]]*read-only"; then
+has_readonly=yes
 fi
 
-# Block write commands that target paths outside workspace
-if echo "$cmd_name" | grep -qE "^(rm|rmdir|mv|cp|chmod|chown|mkdir|touch|dd|ln)$"; then
-    # Check if command contains absolute paths (/) or home paths (~)
-    if echo "$full_command" | grep -qE "(/|~)" && [ "$has_readonly" != "yes" ]; then
-        # Simple heuristic: if command has "/" and doesn't contain workspace path, it might be external
-        if ! echo "$full_command" | grep -q "$workspace"; then
-            cat << EOF
-{
-  "decision": "deny",
-  "reason": "🚧 WORKSPACE ISOLATION: Cannot modify files outside your workspace directory.
+full_command=$(printf '%s' "$input" | sed -n 's/.*"command"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)
+cmd_name=$(printf '%s' "$full_command" | awk '{print $1}')
 
-Your workspace: $workspace
-Command: $cmd_name
-
-Write operations must target paths within the workspace to prevent interference with other conversations.
-
-💡 Tip: Use relative paths, or add '# read-only' if you're only reading external files."
-}
+# Navigation out of the workspace.
+if printf '%s' "$cmd_name" | grep -qE "^(cd|pushd|popd)$"; then
+target=$(printf '%s' "$full_command" | awk '{$1=""; sub(/^ /,""); print}')
+if printf '%s' "$target" | grep -qE "^(/|~|\.\.)" && [ "$has_readonly" != yes ]; then
+cat <<EOF
+{"decision": "deny", "reason": "🚧 WORKSPACE ISOLATION: Cannot navigate outside your workspace ($workspace). Attempted: $cmd_name $target. Add a # read-only comment to your command if you only need to READ outside the workspace."}
 EOF
-            exit 2
-        fi
-    fi
+exit 2
+fi
 fi
 
-# Check for write redirects outside workspace (>, >>)
-if echo "$full_command" | grep -qE "[0-9]*>{1,2}[[:space:]]*(/|~)"; then
-    if ! echo "$full_command" | grep -q "$workspace" && [ "$has_readonly" != "yes" ]; then
-        cat << EOF
-{
-  "decision": "deny",
-  "reason": "🚧 WORKSPACE ISOLATION: Cannot redirect output to files outside workspace.
-
-Your workspace: $workspace
-Command: $full_command
-
-Output redirects must target paths within the workspace."
-}
+# Write commands targeting an absolute/home path outside the workspace.
+if printf '%s' "$cmd_name" | grep -qE "^(rm|rmdir|mv|cp|chmod|chown|mkdir|touch|dd|ln)$"; then
+if printf '%s' "$full_command" | grep -qE "(^|[[:space:]])(/|~)" && [ "$has_readonly" != yes ]; then
+if ! printf '%s' "$full_command" | grep -qF "$workspace"; then
+cat <<EOF
+{"decision": "deny", "reason": "🚧 WORKSPACE ISOLATION: Cannot modify files outside your workspace ($workspace). Command: $cmd_name. Use a path inside the workspace, or add a # read-only comment if you are only reading."}
 EOF
-        exit 2
-    fi
+exit 2
+fi
+fi
 fi
 
-# All checks passed - allow the command
+# Output redirects to a path outside the workspace.
+if printf '%s' "$full_command" | grep -qE "[0-9]*>{1,2}[[:space:]]*(/|~)"; then
+if ! printf '%s' "$full_command" | grep -qF "$workspace" && [ "$has_readonly" != yes ]; then
+cat <<EOF
+{"decision": "deny", "reason": "🚧 WORKSPACE ISOLATION: Cannot redirect output to a file outside your workspace ($workspace)."}
+EOF
+exit 2
+fi
+fi
+
 exit 0
