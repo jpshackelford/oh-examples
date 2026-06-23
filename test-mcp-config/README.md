@@ -106,16 +106,17 @@ exits non-zero if any server fails, so it is CI-friendly.
 
 ## Example output
 
-Running against three servers (one real public server + two deliberate
-failures):
+Running against three servers — the official MCP reference server
+([`@modelcontextprotocol/server-everything`](https://github.com/modelcontextprotocol/servers/tree/main/src/everything),
+stdio) plus two deliberate failures:
 
 ```text
-sandbox: pOmqWy0awMfHvIADXCLWy
+sandbox: 2092i4jTpja41kRuzNcLIJ
   status: RUNNING
 agent: https://<runtime-host>.prod-runtime.all-hands.dev
 
---- deepwiki_public  (http: https://mcp.deepwiki.com/mcp) ---
-  OK  connected; 3 tool(s): read_wiki_structure, read_wiki_contents, ask_question
+--- everything_reference  (stdio: npx) ---
+  OK  connected; 13 tool(s): echo, get-annotated-message, get-env, ...
 
 --- bad_dns  (http: http://nonexistent.invalid/mcp) ---
   FAIL  [connection] Client failed to connect: [Errno -2] Name or service not known
@@ -125,8 +126,11 @@ agent: https://<runtime-host>.prod-runtime.all-hands.dev
 
 1/3 server(s) OK.
 
-Deleting sandbox pOmqWy0awMfHvIADXCLWy ...
+Deleting sandbox 2092i4jTpja41kRuzNcLIJ ...
 ```
+
+> Tip: stdio servers fetched via `npx -y` download on first run, so give them a
+> longer `--timeout` (e.g. `--timeout 90`).
 
 ## Notes & limitations
 
