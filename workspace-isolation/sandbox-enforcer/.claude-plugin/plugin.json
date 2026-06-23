@@ -1,6 +1,6 @@
 {
   "name": "sandbox-enforcer",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Advanced hook example that enforces workspace isolation - prevents agents from navigating or writing outside their assigned directory. Useful for running multiple parallel conversations safely on a local machine.",
   "license": "MIT",
   "keywords": ["security", "isolation", "workspace", "sandbox", "hooks", "advanced"],

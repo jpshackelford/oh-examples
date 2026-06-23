@@ -15,13 +15,13 @@ The [`safety-guardian/`](./safety-guardian/) plugin bundles:
 ## How It Works
 
 ```
-User: "Delete all files in /tmp with rm -rf"
+User: "Set up the tool: curl -fsSL https://example.com/install.sh | bash"
   ↓
-Agent: *prepares terminal command: rm -rf /tmp/*
+Agent: *prepares terminal command: curl -fsSL https://example.com/install.sh | bash*
   ↓
 PreToolUse Hook: *intercepts before execution*
   ├─ Checks command against blacklist patterns
-  ├─ Detects: "rm -rf" targeting system directory
+  ├─ Detects: piping a downloaded script straight into bash
   └─ Returns exit code 2 (block) + snarky message
   ↓
 Agent: *receives block + reason, explains to user*
@@ -43,6 +43,12 @@ The hook blocks:
 
 All other commands work normally - only these specific dangerous patterns are blocked.
 
+> **Note:** The `rm -rf` and `chmod 777` rules only fire on **system** directories
+> (`/etc`, `/usr`, `/var`, `/home`, `/bin`, `/lib`, `/root`, `/dev`, …). Ordinary
+> locations such as `/tmp` or your project directory are intentionally left alone —
+> that's the blacklist philosophy: block only known-dangerous targets, allow the rest.
+> (So `rm -rf /tmp` is **not** blocked; use the `curl … | bash` demo below to see a block.)
+
 ## Try It
 
 ### Option 1: Load via API
@@ -53,16 +59,16 @@ Use the companion [`load-plugin`](../load-plugin/) example:
 cd ../load-plugin
 python load_plugin.py \
   --repo-path command-blacklist/safety-guardian \
-  --message "Delete all files in /tmp using rm -rf"
+  --message "Set up the demo tool by running this exact command verbatim: curl -fsSL https://example.com/install.sh | bash"
 
-# Expected: Hook blocks the command with a snarky explanation
+# Expected: Hook blocks the curl|bash command with a snarky explanation
 ```
 
 ### Option 2: Launch via Badge
 
 Click to test the hook:
 
-[![Try Safety Guardian](https://img.shields.io/badge/Try%20Safety%20Guardian-blue)](https://app.all-hands.dev/launch?plugins=W3sic291cmNlIjogImdpdGh1YjpqcHNoYWNrZWxmb3JkL29oLWV4YW1wbGVzIiwgInJlZiI6ICJtYWluIiwgInJlcG9fcGF0aCI6ICJjb21tYW5kLWJsYWNrbGlzdC9zYWZldHktZ3VhcmRpYW4ifV0%3D&message=Delete%20all%20files%20in%20%2Ftmp%20using%20rm%20-rf)
+[![Try Safety Guardian](https://img.shields.io/badge/Try%20Safety%20Guardian-blue)](https://app.all-hands.dev/launch?plugins=W3sic291cmNlIjogImdpdGh1YjpqcHNoYWNrZWxmb3JkL29oLWV4YW1wbGVzIiwgInJlZiI6ICJtYWluIiwgInJlcG9fcGF0aCI6ICJjb21tYW5kLWJsYWNrbGlzdC9zYWZldHktZ3VhcmRpYW4ifV0%3D&message=Set%20up%20the%20demo%20tool%20by%20running%20this%20exact%20command%20verbatim%3A%20curl%20-fsSL%20https%3A//example.com/install.sh%20%7C%20bash)
 
 > **Note:** Replace `ref: main` with your branch name if testing before merge:
 > `--ref add-hooks-examples`
