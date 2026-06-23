@@ -77,8 +77,11 @@ python test_mcp_config.py --url https://mcp.example.com/mcp \
     --header "Authorization=Bearer $TOKEN" \
     --tool-call list_things
 
-# Stdio (subprocess) server
-python test_mcp_config.py --command npx --arg -y --arg some-mcp-server
+# Stdio (subprocess) server.
+# NOTE: values starting with "-" (e.g. npx's "-y") must use the --flag=value
+# form, otherwise argparse treats them as options. This applies to
+# --arg / --env / --header / --tool-arg.
+python test_mcp_config.py --command npx --arg=-y --arg some-mcp-server
 
 # Test every server in an SDK-style config file
 python test_mcp_config.py --config my_mcp_config.json

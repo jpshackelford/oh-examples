@@ -36,8 +36,10 @@ Examples
         --header "Authorization=Bearer $TOKEN" \
         --tool-call list_things
 
-    # Test a stdio (subprocess) server:
-    python test_mcp_config.py --command npx --arg -y --arg some-mcp-server
+    # Test a stdio (subprocess) server. NOTE: for any value that starts with
+    # "-" (such as npx's "-y") use the --flag=value form so argparse does not
+    # mistake it for an option -- this applies to --arg/--env/--header/--tool-arg:
+    python test_mcp_config.py --command npx --arg=-y --arg some-mcp-server
 
     # Test every server in an SDK-style config file
     # ({"mcpServers": {"<name>": {"url": ..., "transport": "http"}, ...}}):
