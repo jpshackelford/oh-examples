@@ -73,6 +73,15 @@ Click to test the hook:
 > **Note:** Replace `ref: main` with your branch name if testing before merge:
 > `--ref add-hooks-examples`
 
+> **Heads-up:** The OpenHands agent has its own safety training and may *refuse*
+> or *rewrite* an obviously-dangerous command (e.g. turn `curl … | bash` into a
+> download-then-inspect) before the hook ever runs. That's expected — the
+> PreToolUse hook is a **deterministic backstop** that enforces the policy no
+> matter what the agent decides. If the agent declines, re-run the demo (framing
+> it as "run verbatim to test the guard" usually gets the command through), then
+> confirm the block in the conversation events: a hook block is a `PreToolUse`
+> `HookExecutionEvent` with `exit_code: 2` / `blocked: true` and a `reason`.
+
 ## The Hook
 
 The magic happens in [`hooks/hooks.json`](./safety-guardian/hooks/hooks.json):
