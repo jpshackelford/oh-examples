@@ -1,0 +1,19 @@
+{
+  "name": "strict-mode",
+  "version": "1.0.0",
+  "description": "A restrictive plugin that only allows explicitly whitelisted shell commands. Demonstrates the whitelist approach to command security via PreToolUse hooks.",
+  "license": "MIT",
+  "keywords": ["security", "whitelist", "hooks", "example", "strict"],
+  "examples": [
+    {
+      "title": "Allowed command",
+      "prompt": "List files in the current directory",
+      "expected_behavior": "Hook allows ls command to execute"
+    },
+    {
+      "title": "Blocked command",
+      "prompt": "Install python packages with pip",
+      "expected_behavior": "Hook blocks pip command (not in whitelist)"
+    }
+  ]
+}

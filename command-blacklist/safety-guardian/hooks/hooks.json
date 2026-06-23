@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "terminal",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "input=$(cat)\n\n# A system path: a leading / followed by a protected top-level dir (home, etc, ...)\n# or bare \"/\". The trailing class also matches the closing JSON quote, so bare\n# targets like /etc and / are detected, not just /etc/<something>.\nsys='(^|[[:space:]])/((home|usr|etc|var|boot|sys|bin|lib|sbin|root|dev)([^[:alnum:]]|$)|[\"[:space:]]|$)'\n\n# rm -rf (any order of r/f flags) targeting a system directory\nif echo \"$input\" | grep -qE \"rm[[:space:]]+-[^[:space:]]*r[^[:space:]]*f|rm[[:space:]]+-[^[:space:]]*f[^[:space:]]*r\" && echo \"$input\" | grep -qE \"$sys\"; then\ncat <<EOF\n{\"decision\": \"deny\", \"reason\": \"🛑 Whoa there, friend! Trying to rm -rf a system directory is like playing Russian Roulette with all chambers loaded. I have blocked this command for your own good. If you really need to delete something, be more specific about the target.\"}\nEOF\nexit 2\nfi\n\n# chmod 777 on a system directory\nif echo \"$input\" | grep -qE \"chmod[^|&]*777\" && echo \"$input\" | grep -qE \"$sys\"; then\ncat <<EOF\n{\"decision\": \"deny\", \"reason\": \"🚨 chmod 777? Really? That is the security equivalent of leaving your front door wide open with a FREE STUFF sign. I am going to need you to reconsider this approach.\"}\nEOF\nexit 2\nfi\n\n# dd writing to a raw block device\nif echo \"$input\" | grep -qE \"(^|[\\\"[:space:]])dd([[:space:]]|$)\" && echo \"$input\" | grep -qE \"of=/dev/(sd|hd|nvme|vd)\"; then\ncat <<EOF\n{\"decision\": \"deny\", \"reason\": \"⚠️ Attempting to dd directly to a device? Bold move! But I am not about to let you accidentally turn your storage into modern art. Please double-check what you are doing.\"}\nEOF\nexit 2\nfi\n\n# fork bomb\nif echo \"$input\" | grep -qE \":\\(\\)[[:space:]]*\\{.*:\\|:.*\\}\"; then\ncat <<EOF\n{\"decision\": \"deny\", \"reason\": \"💣 Nice try with the fork bomb! I appreciate the creativity, but I am not going to help you DOS yourself. How about we channel that energy into something more productive?\"}\nEOF\nexit 2\nfi\n\n# curl|bash or wget|sh\nif echo \"$input\" | grep -qE \"(curl|wget)[^|]*\\|[^|]*(ba)?sh([^a-zA-Z]|$)\"; then\ncat <<EOF\n{\"decision\": \"deny\", \"reason\": \"🤔 Piping unknown scripts directly to bash? That is like accepting candy from strangers on the internet. Let us download it first and see what we are dealing with, shall we?\"}\nEOF\nexit 2\nfi\n\nexit 0\n",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

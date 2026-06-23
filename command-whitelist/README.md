@@ -1,0 +1,213 @@
+# Command Whitelist with Hooks
+
+A self-contained example showing how to use **PreToolUse hooks** in a plugin to **whitelist approved shell commands**. The agent can only execute commands that are explicitly on the approved list - everything else is blocked.
+
+This example demonstrates the **whitelist approach**: deny everything by default, only allow specific approved commands.
+
+## What's in the Box
+
+The [`strict-mode/`](./strict-mode/) plugin bundles:
+
+- **Hooks** (`hooks/hooks.json`) - PreToolUse hook that validates commands against a whitelist
+- **Skill** (`skills/strict-mode/SKILL.md`) - Documentation about what's allowed
+- **Plugin manifest** (`.claude-plugin/plugin.json`) - Standard Claude Code plugin format
+
+## How It Works
+
+```
+User: "Install the requests package with pip"
+  ↓
+Agent: *prepares terminal command: pip install requests*
+  ↓
+PreToolUse Hook: *intercepts before execution*
+  ├─ Extracts command name: "pip"
+  ├─ Checks whitelist: [ls, cat, grep, find, ...]
+  ├─ Not found in whitelist!
+  └─ Returns exit code 2 (block) + explanation
+  ↓
+Agent: *receives block + reason, explains to user*
+  ↓
+User: *sees which commands are allowed*
+```
+
+## Whitelisted Commands
+
+Only these commands are allowed (all read-only operations):
+
+**File Operations:** `ls`, `cat`, `head`, `tail`, `file`
+**Search & Filter:** `grep`, `find`, `wc`
+**System Info:** `pwd`, `whoami`, `date`, `uname`, `df`, `du`, `stat`
+**Utilities:** `echo`, `which`, `env`, `printenv`, `history`, `tree`
+
+Everything else is **blocked by default**.
+
+## Try It
+
+### Option 1: Load via API
+
+Use the companion [`load-plugin`](../load-plugin/) example:
+
+```bash
+cd ../load-plugin
+
+# This will be blocked (pip not whitelisted)
+python load_plugin.py \
+  --repo-path command-whitelist/strict-mode \
+  --message "Install the requests package"
+
+# This will be allowed (ls is whitelisted)
+python load_plugin.py \
+  --repo-path command-whitelist/strict-mode \
+  --message "List all Python files in the current directory"
+```
+
+### Option 2: Launch via Badge
+
+Click to test strict mode:
+
+[![Try Strict Mode](https://img.shields.io/badge/Try%20Strict%20Mode-blue)](https://app.all-hands.dev/launch?plugins=W3sic291cmNlIjogImdpdGh1YjpqcHNoYWNrZWxmb3JkL29oLWV4YW1wbGVzIiwgInJlZiI6ICJtYWluIiwgInJlcG9fcGF0aCI6ICJjb21tYW5kLXdoaXRlbGlzdC9zdHJpY3QtbW9kZSJ9XQ%3D%3D&message=Install%20the%20requests%20package)
+
+> **Note:** Replace `ref: main` with your branch name if testing before merge:
+> `--ref add-hooks-examples`
+
+## The Hook
+
+The magic happens in [`hooks/hooks.json`](./strict-mode/hooks/hooks.json):
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "terminal",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "input=$(cat)\n# ... POSIX-sh whitelist check ...\nexit 0",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**How it works:**
+
+1. **`PreToolUse`** - Runs **before** the terminal tool executes
+2. **`matcher: "terminal"`** - Only applies to shell commands
+3. **Inline POSIX-sh script** (run via `/bin/sh -c`; kept inline rather than a
+   `bash -c '...'` wrapper or an external `.sh` file — see the note in the
+   [command-blacklist README](../command-blacklist/README.md#the-hook) for why):
+   - Extracts the command name from the JSON input
+   - Checks if it's in the hardcoded whitelist
+   - Returns `exit 0` (allow) or `exit 2` (block, with a `{"decision":"deny",...}` reason)
+
+The whitelist is maintained as a simple space-separated list in the script:
+
+```sh
+allowed="ls cat grep find head tail wc echo pwd whoami date uname df du tree file which env printenv history stat"
+```
+
+## Whitelist vs. Blacklist
+
+| Approach | Strategy | Security | Usability | Best For |
+|----------|----------|----------|-----------|----------|
+| **Whitelist** (this) | Deny by default, allow specific | ✅ **High** - Can't execute unexpected commands | ⚠️ **Limited** - Must pre-approve everything | High-security, read-only, educational |
+| **Blacklist** ([`command-blacklist`](../command-blacklist/)) | Allow by default, block specific | ⚠️ **Medium** - New patterns might slip through | ✅ **Full** - Everything works except blocked | General protection, development work |
+
+**Whitelist** = "Only these few things are allowed"
+**Blacklist** = "Everything is allowed except these specific things"
+
+## When to Use Each Approach
+
+### Use Whitelist (Strict Mode) When:
+- 🎓 **Educational** - Teaching safe command usage
+- 🔍 **Analysis only** - Reading/inspecting systems
+- 🛡️ **Maximum security** - Untrusted users or agents
+- 📊 **Auditing** - Examining existing systems
+- 🧪 **Sandboxes** - Limiting experimental environments
+
+### Use Blacklist (Safety Guardian) When:
+- 🚀 **Development** - Need full tooling access
+- 🔧 **General protection** - Block obvious dangers
+- ⚡ **Productivity** - Don't want to pre-approve everything
+- 🏗️ **Building** - Need to install, compile, deploy
+- 🎯 **Specific risks** - Known dangerous patterns to block
+
+## Extending the Whitelist
+
+To allow additional commands, edit the `allowed` list in `hooks/hooks.json`
+(add the command name, space-separated):
+
+```sh
+allowed="ls cat grep find ... git python npm"
+```
+
+Each command name is matched exactly - no wildcards or partial matches. For commands with subcommands (like `git clone`), you'll need to whitelist the main command (`git`) and handle subcommand validation separately if needed.
+
+## Security Considerations
+
+**✅ Strengths:**
+- Completely locks down command execution
+- Easy to audit (small whitelist)
+- Can't be bypassed by clever command variations
+- Works well for truly untrusted agents
+
+**⚠️ Limitations:**
+- Very restrictive (might frustrate users)
+- Requires updating the list as needs evolve
+- Doesn't prevent reading sensitive files (allows `cat /etc/passwd`)
+- Simple command extraction (not full shell parsing)
+
+For production security, consider:
+1. Combining with file path restrictions
+2. Adding argument validation (not just command name)
+3. Logging all blocked attempts
+4. Using a proper JSON parser instead of grep
+
+## Plugin Structure
+
+```
+strict-mode/
+├── .claude-plugin/
+│   └── plugin.json          # Plugin metadata
+├── hooks/
+│   └── hooks.json           # PreToolUse hook definition
+└── skills/
+    └── strict-mode/
+        └── SKILL.md         # Documentation (auto-loaded)
+```
+
+This follows the **Claude Code plugin format**, compatible with:
+- OpenHands Cloud plugin launcher
+- Claude Desktop plugin marketplace
+- Any system supporting the `.claude-plugin` spec
+
+## Related
+
+- [OpenHands Hooks Guide](https://docs.openhands.dev/sdk/guides/hooks.md) - Full hook documentation
+- [Plugin System](https://docs.openhands.dev/sdk/guides/plugins.md) - How plugins work
+- [`load-plugin`](../load-plugin/) - Programmatic plugin loading
+- [`launch-plugin-badge`](../launch-plugin-badge/) - No-code plugin launcher
+- [`command-blacklist`](../command-blacklist/) - Blacklist approach (opposite strategy)
+
+## Real-World Use Cases
+
+- **Code review agents** - Only allow read operations on source code
+- **Security auditing** - Inspect systems without modification
+- **Student environments** - Safe learning sandbox
+- **Public demos** - Allow exploration without damage
+- **CI/CD read-only steps** - Verify without changing artifacts
+
+## Progressive Enhancement
+
+Start strict, then gradually expand:
+
+1. **Day 1:** Only allow `ls`, `cat`, `grep` (ultra-strict)
+2. **Week 1:** Add `find`, `wc`, `head`, `tail` (more inspection tools)
+3. **Month 1:** Add `git` for version control (read-only)
+4. **As needed:** Carefully evaluate and add new commands
+
+This way you build trust and understand usage patterns before opening up.

@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "terminal",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "input=$(cat)\n\n# Extract the first \"command\" value, then its first whitespace-delimited token.\ncmd=$(printf '%s' \"$input\" | sed -n 's/.*\"command\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p' | head -n1 | awk '{print $1}')\n\nallowed=\"ls cat grep find head tail wc echo pwd whoami date uname df du tree file which env printenv history stat\"\n\n# No command parsed -> allow (fail open; nothing to validate).\nif [ -z \"$cmd\" ]; then\nexit 0\nfi\n\nfor a in $allowed; do\nif [ \"$cmd\" = \"$a\" ]; then\nexit 0\nfi\ndone\n\ncat <<EOF\n{\"decision\": \"deny\", \"reason\": \"🔒 STRICT MODE: The command '$cmd' is not in the whitelist. Only read-only operations are allowed: $allowed. If you need to modify files, please ask for permission to extend the whitelist.\"}\nEOF\nexit 2\n",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
