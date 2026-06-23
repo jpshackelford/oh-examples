@@ -1,0 +1,143 @@
+# test-mcp-config
+
+Validate **MCP server configurations** against a real sandbox's agent-server,
+**before** wiring them into a conversation.
+
+## Why
+
+The OpenHands web UI lets you *add* an MCP server, but it does not currently
+tell you whether the server actually connects. If the URL, token, or network
+path is wrong, the server's tools simply never appear in a conversation — with
+no error shown in the UI. (Under the hood, when multiple MCP servers are
+configured, a server that fails to connect is logged as a warning in the
+runtime/agent-server logs and silently skipped.)
+
+The agent-server already ships an endpoint that solves this:
+`POST /api/mcp/test` connects to a single candidate server, lists its tools,
+and optionally invokes one read-only tool to exercise credentials. This example
+drives that endpoint from the Cloud API so you can verify a config end-to-end.
+
+> Requires an agent-server that includes `POST /api/mcp/test`
+> (added in **agent-server 1.29.0 / OpenHands 1.8.0**). Older runtimes return
+> `404` and the script tells you to upgrade the runtime image.
+
+## How it works
+
+```
+1. POST /api/v1/sandboxes              -> start a sandbox (no conversation)
+2. GET  /api/v1/sandboxes?id=<id>      -> poll until status == RUNNING
+3. read exposed_urls[AGENT_SERVER]     -> the sandbox's agent-server URL
+   and session_api_key                    + per-sandbox session key
+4. POST {agent_server}/api/mcp/test    -> validate each server config
+```
+
+`POST /api/mcp/test` returns **HTTP 200 in both success and failure** — a failed
+connection is the *expected* outcome of validating user input, not a server
+error:
+
+```json
+{"ok": true,  "tools": ["..."], "tool_result": null}
+{"ok": false, "error": "Client failed to connect: ...", "error_kind": "connection"}
+```
+
+`error_kind` is one of `timeout`, `connection`, or `unknown`. Note that HTTP
+status failures (e.g. a `401` from a bad token) currently come back as
+`unknown` with the status in the `error` text, so read `error` — not just
+`error_kind` — when triaging auth problems.
+
+## Auth
+
+```bash
+export OH_API_KEY=...    # OpenHands Cloud API key
+```
+
+The same key authenticates the app-server calls (via `X-Session-API-Key`); the
+agent-server calls use the per-sandbox `session_api_key` returned with the
+sandbox.
+
+## Install
+
+Only depends on `requests`:
+
+```bash
+pip install requests
+# or, from the repo root: uv run --with requests test-mcp-config/test_mcp_config.py ...
+```
+
+## Usage
+
+```bash
+# Single remote (streamable-http) server with a bearer token
+python test_mcp_config.py \
+    --url https://mcp.example.com/mcp --type shttp --server-api-key "$TOKEN"
+
+# Use an explicit header instead of --server-api-key, and verify credentials
+# by invoking a known read-only tool (listing tools alone often won't):
+python test_mcp_config.py --url https://mcp.example.com/mcp \
+    --header "Authorization=Bearer $TOKEN" \
+    --tool-call list_things
+
+# Stdio (subprocess) server
+python test_mcp_config.py --command npx --arg -y --arg some-mcp-server
+
+# Test every server in an SDK-style config file
+python test_mcp_config.py --config my_mcp_config.json
+
+# Reuse a sandbox you already started (skips create + delete)
+python test_mcp_config.py --sandbox-id <id> --url https://mcp.example.com/mcp
+```
+
+`--config` accepts an SDK-style file (the same `mcpServers` shape returned by
+`GET /api/v1/settings` under `agent_settings.mcp_config`):
+
+```json
+{
+  "mcpServers": {
+    "jira":  {"url": "https://mcp-jira.example.com/http",  "transport": "http"},
+    "figma": {"url": "https://mcp-figma.example.com/mcp", "transport": "http"},
+    "local": {"command": "npx", "args": ["-y", "some-mcp-server"]}
+  }
+}
+```
+
+By default the script creates a sandbox, runs the tests, and deletes the
+sandbox. Pass `--keep` (or `--sandbox-id`) to leave it running. The process
+exits non-zero if any server fails, so it is CI-friendly.
+
+## Example output
+
+Running against three servers (one real public server + two deliberate
+failures):
+
+```text
+sandbox: pOmqWy0awMfHvIADXCLWy
+  status: RUNNING
+agent: https://<runtime-host>.prod-runtime.all-hands.dev
+
+--- deepwiki_public  (http: https://mcp.deepwiki.com/mcp) ---
+  OK  connected; 3 tool(s): read_wiki_structure, read_wiki_contents, ask_question
+
+--- bad_dns  (http: http://nonexistent.invalid/mcp) ---
+  FAIL  [connection] Client failed to connect: [Errno -2] Name or service not known
+
+--- conn_refused  (http: http://127.0.0.1:1/mcp) ---
+  FAIL  [connection] Client failed to connect: All connection attempts failed
+
+1/3 server(s) OK.
+
+Deleting sandbox pOmqWy0awMfHvIADXCLWy ...
+```
+
+## Notes & limitations
+
+- **Credentials checked only on tool invocation.** Some servers connect and
+  list tools fine with a bad token, and only fail when a tool runs. Pass
+  `--tool-call <read-only-tool>` to exercise those credentials; the outcome is
+  reported under `tool_result` and does **not** change `ok`.
+- **Plaintext secrets.** This example sends whatever token/headers you pass, in
+  plaintext, to the sandbox you control. (The web UI's "edit" flow round-trips
+  *encrypted* stored secrets to the same endpoint; that cross-cipher path is a
+  UI-internal detail and out of scope here.)
+- **Self-hosted / Enterprise.** Point `--base-url` (or `OH_API_BASE`) at your
+  deployment. The flow is identical as long as the runtime image is new enough
+  to expose `POST /api/mcp/test`.
