@@ -7,6 +7,7 @@ A collection of example code for working with the OpenHands API.
 | Example | Description |
 |---------|-------------|
 | [conversation-metrics](./conversation-metrics/) | CLI tool to retrieve cost and token usage for conversations |
+| [conversation-tags](./conversation-tags/) | Attach arbitrary key-value **metadata** to a conversation via `tags` (e.g. an external `environment_url`) and read it back from `AppConversation.tags` |
 | [per-conversation-secrets](./per-conversation-secrets/) | Inject per-conversation secrets via REST API — both as bash env vars and to template an **MCP server** config (`.mcp.json`) bundled in a plugin |
 | [start-sandbox](./start-sandbox/) | Start a sandbox (no conversation) and run commands via the agent-server REST API |
 | [test-mcp-config](./test-mcp-config/) | Validate **MCP server configs** (connection/auth) against a sandbox's agent-server via `POST /api/mcp/test`, before using them in a conversation |
