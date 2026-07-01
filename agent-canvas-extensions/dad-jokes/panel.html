@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; form-action 'none'; base-uri 'none';"
+    />
+    <title>Dad Jokes</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        margin: 0;
+        padding: 16px;
+        color: #e5e7eb;
+        background: linear-gradient(135deg, #0b0f17 0%, #1a1f2e 100%);
+        min-height: 100vh;
+      }
+      .header {
+        text-align: center;
+        margin-bottom: 20px;
+      }
+      .header h1 {
+        margin: 0;
+        font-size: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+      }
+      .emoji {
+        font-size: 32px;
+      }
+      .joke-card {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 16px;
+      }
+      .setup {
+        font-size: 16px;
+        color: #9ca3af;
+        margin-bottom: 12px;
+      }
+      .punchline {
+        font-size: 18px;
+        color: #fbbf24;
+        font-weight: 600;
+        opacity: 0;
+        transform: translateY(10px);
+        transition: opacity 0.3s, transform 0.3s;
+      }
+      .punchline.revealed {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      .reveal-btn {
+        display: block;
+        width: 100%;
+        padding: 10px 16px;
+        margin-top: 12px;
+        border: none;
+        border-radius: 8px;
+        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        color: white;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: transform 0.2s, box-shadow 0.2s;
+      }
+      .reveal-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+      }
+      .reveal-btn:active {
+        transform: translateY(0);
+      }
+      .next-btn {
+        display: block;
+        width: 100%;
+        padding: 12px 16px;
+        border: none;
+        border-radius: 8px;
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        color: white;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.2s, box-shadow 0.2s;
+      }
+      .next-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+      }
+      .groan-meter {
+        margin-top: 20px;
+        padding: 16px;
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 8px;
+        text-align: center;
+      }
+      .groan-meter h3 {
+        margin: 0 0 8px 0;
+        font-size: 14px;
+        color: #9ca3af;
+      }
+      .groan-count {
+        font-size: 36px;
+        font-weight: bold;
+        color: #f59e0b;
+      }
+      .groan-label {
+        font-size: 12px;
+        color: #6b7280;
+        margin-top: 4px;
+      }
+      .convo-status {
+        margin-top: 16px;
+        padding: 12px;
+        background: rgba(99, 102, 241, 0.1);
+        border-radius: 8px;
+        font-size: 13px;
+        color: #a5b4fc;
+      }
+      .rating {
+        display: flex;
+        justify-content: center;
+        gap: 8px;
+        margin-top: 12px;
+      }
+      .rating button {
+        padding: 8px 16px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 20px;
+        background: transparent;
+        color: #e5e7eb;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .rating button:hover {
+        background: rgba(255, 255, 255, 0.1);
+        transform: scale(1.1);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h1><span class="emoji">👴</span> Dad Jokes <span class="emoji">🤣</span></h1>
+    </div>
+
+    <div class="joke-card">
+      <div class="setup" id="setup">Loading joke...</div>
+      <div class="punchline" id="punchline"></div>
+      <button class="reveal-btn" id="reveal">🥁 Reveal Punchline</button>
+      <div class="rating" id="rating" style="display: none;">
+        <button id="groan">😩 Groan</button>
+        <button id="laugh">😂 LOL</button>
+      </div>
+    </div>
+
+    <button class="next-btn" id="next">👴 Tell me another one, Dad!</button>
+
+    <div class="groan-meter">
+      <h3>Groan-O-Meter™</h3>
+      <div class="groan-count" id="groanCount">0</div>
+      <div class="groan-label">total groans induced</div>
+    </div>
+
+    <div class="convo-status" id="convoStatus">Loading conversation...</div>
+
+    <script>
+      // Joke database (same as worker, for offline panel use)
+      var DAD_JOKES = [
+        { setup: "Why do programmers prefer dark mode?", punchline: "Because light attracts bugs!" },
+        { setup: "Why did the developer go broke?", punchline: "Because he used up all his cache!" },
+        { setup: "Why do Java developers wear glasses?", punchline: "Because they can't C#!" },
+        { setup: "What's a programmer's favorite hangout place?", punchline: "Foo Bar!" },
+        { setup: "Why did the functions stop calling each other?", punchline: "They had too many arguments!" },
+        { setup: "Why was the JavaScript developer sad?", punchline: "Because he didn't Node how to Express himself!" },
+        { setup: "What do you call 8 hobbits?", punchline: "A hobbyte!" },
+        { setup: "Why do programmers hate nature?", punchline: "It has too many bugs and no documentation!" },
+        { setup: "Why did the developer quit his job?", punchline: "Because he didn't get arrays (a raise)!" },
+        { setup: "How many programmers does it take to change a light bulb?", punchline: "None, that's a hardware problem!" },
+        { setup: "Why did the AI go to therapy?", punchline: "It had too many deep issues!" },
+        { setup: "What's an AI's favorite snack?", punchline: "Microchips!" },
+        { setup: "Why did the commit go to jail?", punchline: "It broke the build!" },
+        { setup: "What do you call a developer who doesn't comment their code?", punchline: "A mystery novelist!" },
+        { setup: "Why did the two CSS properties break up?", punchline: "They had too much conflict!" },
+        { setup: "What's a bug's least favorite room?", punchline: "The living room, they prefer the dead code!" },
+        { setup: "Why don't programmers like to go outside?", punchline: "The sun causes too much glare on their screens!" },
+        { setup: "What do you call a computer that sings?", punchline: "A-Dell!" },
+        { setup: "Why was the database administrator so calm?", punchline: "He had everything indexed!" },
+        { setup: "What did the router say to the doctor?", punchline: "It hurts when IP!" },
+      ];
+
+      // Webview API client (inline for no-build simplicity)
+      (function () {
+        var parentWindow = window.parent;
+        var nextId = 1;
+        var pending = {};
+
+        window.addEventListener("message", function (event) {
+          if (event.source !== parentWindow) return;
+          var msg = event.data;
+          if (!msg || msg.kind !== "response") return;
+          var entry = pending[msg.id];
+          if (!entry) return;
+          delete pending[msg.id];
+          if (msg.error !== undefined) entry.reject(new Error(msg.error));
+          else entry.resolve(msg.result);
+        });
+
+        function request(method, params) {
+          var id = nextId++;
+          return new Promise(function (resolve, reject) {
+            pending[id] = { resolve: resolve, reject: reject };
+            parentWindow.postMessage(
+              { kind: "request", id: id, method: method, params: params },
+              "*"
+            );
+          });
+        }
+
+        var api = {
+          conversation: {
+            getActive: function () {
+              return request("conversation.getActive");
+            },
+          },
+          storage: {
+            get: function (key) {
+              return request("storage.get", { key: key });
+            },
+            set: function (key, value) {
+              return request("storage.set", { key: key, value: value });
+            },
+          },
+          window: {
+            showInformationMessage: function (message) {
+              return request("window.showInformationMessage", { message: message });
+            },
+          },
+        };
+
+        // State
+        var currentJoke = null;
+        var groanCount = 0;
+        var punchlineRevealed = false;
+
+        // Elements
+        var setupEl = document.getElementById("setup");
+        var punchlineEl = document.getElementById("punchline");
+        var revealBtn = document.getElementById("reveal");
+        var ratingDiv = document.getElementById("rating");
+        var nextBtn = document.getElementById("next");
+        var groanCountEl = document.getElementById("groanCount");
+        var convoStatusEl = document.getElementById("convoStatus");
+
+        function getRandomJoke() {
+          return DAD_JOKES[Math.floor(Math.random() * DAD_JOKES.length)];
+        }
+
+        function showJoke(joke) {
+          currentJoke = joke;
+          punchlineRevealed = false;
+          setupEl.textContent = joke.setup;
+          punchlineEl.textContent = joke.punchline;
+          punchlineEl.classList.remove("revealed");
+          revealBtn.style.display = "block";
+          ratingDiv.style.display = "none";
+        }
+
+        function revealPunchline() {
+          if (punchlineRevealed) return;
+          punchlineRevealed = true;
+          punchlineEl.classList.add("revealed");
+          revealBtn.style.display = "none";
+          ratingDiv.style.display = "flex";
+        }
+
+        function recordGroan() {
+          groanCount++;
+          groanCountEl.textContent = groanCount;
+          api.storage.set("groanCount", groanCount);
+          api.window.showInformationMessage("😩 Another victim of dad humor!");
+        }
+
+        function recordLaugh() {
+          api.window.showInformationMessage("😂 Finally, someone with good taste!");
+        }
+
+        // Load saved groan count
+        api.storage.get("groanCount").then(function (saved) {
+          if (typeof saved === "number") {
+            groanCount = saved;
+            groanCountEl.textContent = groanCount;
+          }
+        });
+
+        // Load conversation info
+        api.conversation.getActive().then(function (convo) {
+          if (convo) {
+            convoStatusEl.textContent = "🎯 Currently annoying: " + (convo.title || convo.id);
+          } else {
+            convoStatusEl.textContent = "💤 No active conversation to annoy... yet.";
+          }
+        }).catch(function () {
+          convoStatusEl.textContent = "🤷 Couldn't check conversation status.";
+        });
+
+        // Event handlers
+        revealBtn.addEventListener("click", revealPunchline);
+        document.getElementById("groan").addEventListener("click", recordGroan);
+        document.getElementById("laugh").addEventListener("click", recordLaugh);
+        nextBtn.addEventListener("click", function () {
+          showJoke(getRandomJoke());
+        });
+
+        // Initial joke
+        showJoke(getRandomJoke());
+      })();
+    </script>
+  </body>
+</html>

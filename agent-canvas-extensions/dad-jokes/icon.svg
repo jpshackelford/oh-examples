@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Face outline -->
+  <circle cx="12" cy="12" r="10" />
+  <!-- Mustache -->
+  <path d="M7 13 Q8.5 15 10 13 Q10.5 12 12 12 Q13.5 12 14 13 Q15.5 15 17 13" />
+  <!-- Eyes (squinting from laughter) -->
+  <path d="M8 9 Q9 8 10 9" />
+  <path d="M14 9 Q15 8 16 9" />
+  <!-- Smile lines -->
+  <path d="M8 15 Q12 18 16 15" />
+</svg>
