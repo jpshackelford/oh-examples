@@ -274,13 +274,142 @@ def run_conversation(agent_server_url: str, session_key: str, conv_id: str) -> N
     print("  ⚠️  timeout waiting for completion", file=sys.stderr)
 
 
+def get_available_tools(agent_server_url: str, session_key: str, conv_id: str) -> list[dict]:
+    """Get the list of tools that were available to the agent.
+    
+    This retrieves the SystemPromptEvent which contains the actual tools array
+    that was configured for the conversation.
+    
+    Returns:
+        List of tool definitions, each with 'title', 'kind', 'description', etc.
+    """
+    response = agent_server_request(
+        "GET",
+        agent_server_url,
+        session_key,
+        f"/api/conversations/{conv_id}/events/search?kind__eq=SystemPromptEvent&limit=1",
+    )
+    
+    data = response.json()
+    events = data.get("items", [])
+    
+    if not events:
+        return []
+    
+    # SystemPromptEvent contains the tools array
+    system_event = events[0]
+    return system_event.get("tools", [])
+
+
+def display_tools(tools: list[dict], show_descriptions: bool = False) -> None:
+    """Display tools in a concise, grouped format.
+    
+    Groups tools by category (e.g., all browser tools together) for readability.
+    
+    Args:
+        tools: List of tool definitions from SystemPromptEvent
+        show_descriptions: If True, show first line of each tool's description
+    """
+    if not tools:
+        print("  (no tools found)")
+        return
+    
+    # Group tools by category based on title prefix
+    categorized = {}
+    for tool in tools:
+        title = tool.get("title", "unknown")
+        
+        # Categorize based on title prefix
+        if title.startswith("browser_"):
+            category = "browser"
+        elif title.startswith("default_"):
+            # MCP tools like default_create_pr, default_tavily_*
+            # Extract the provider name
+            parts = title.split("_", 2)
+            category = parts[1] if len(parts) > 1 else "default"
+        else:
+            category = "core"
+        
+        if category not in categorized:
+            categorized[category] = []
+        categorized[category].append(tool)
+    
+    # Display tools by category
+    print(f"  total tools: {len(tools)}")
+    print()
+    
+    for category in sorted(categorized.keys()):
+        tools_in_cat = categorized[category]
+        
+        if category == "browser":
+            print(f"  📱 Browser tools ({len(tools_in_cat)}):")
+        elif category == "core":
+            print(f"  🔧 Core tools ({len(tools_in_cat)}):")
+        else:
+            print(f"  🔌 {category.title()} tools ({len(tools_in_cat)}):")
+        
+        for tool in tools_in_cat:
+            title = tool.get("title", "unknown")
+            kind = tool.get("kind", "unknown")
+            
+            if show_descriptions:
+                desc = tool.get("description", "")
+                # Get first line of description
+                first_line = desc.split("\n")[0] if desc else ""
+                print(f"    • {title} ({kind})")
+                print(f"      {first_line[:70]}{'...' if len(first_line) > 70 else ''}")
+            else:
+                print(f"    • {title}")
+        print()
+
+
+def check_browser_tools(tools: list[dict]) -> bool:
+    """Check if browser tools are present in the tools list.
+    
+    Args:
+        tools: List of tool definitions
+        
+    Returns:
+        True if browser tools are found, False otherwise
+    """
+    for tool in tools:
+        title = tool.get("title", "")
+        kind = tool.get("kind", "")
+        
+        # Check if this is a browser tool
+        if "browser" in title.lower() or "browser" in kind.lower():
+            return True
+    
+    return False
+
+
 def verify_tools(agent_server_url: str, session_key: str, conv_id: str) -> None:
     """Verify which tools were actually available to the agent.
     
-    This inspects the conversation events to see which tools were used.
+    This inspects the conversation events to see:
+    1. Which tools were available (from SystemPromptEvent)
+    2. Which tools were actually used (from ActionEvents)
+    3. Whether browser tools are present
     """
     print("\n=== Verifying tools ===")
     
+    # Get available tools from SystemPromptEvent
+    available_tools = get_available_tools(agent_server_url, session_key, conv_id)
+    
+    if available_tools:
+        print("\n  Available tools:")
+        display_tools(available_tools)
+        
+        # Check for browser tools in available tools
+        has_browser = check_browser_tools(available_tools)
+        if has_browser:
+            print("  ❌ FAIL: Browser tools are in the available tools list!", file=sys.stderr)
+        else:
+            print("  ✅ PASS: No browser tools in available tools list")
+    else:
+        print("  ⚠️  Could not retrieve available tools (no SystemPromptEvent found)")
+    
+    # Get tools actually used from ActionEvents
     response = agent_server_request(
         "GET",
         agent_server_url,
@@ -297,13 +426,13 @@ def verify_tools(agent_server_url: str, session_key: str, conv_id: str) -> None:
         if event.get("kind") == "ActionEvent" and "tool_name" in event:
             tools_used.add(event["tool_name"])
     
-    print(f"  tools actually used: {sorted(tools_used)}")
+    print(f"\n  Tools actually used: {sorted(tools_used) if tools_used else '(none)'}")
     
-    if "browser" in tools_used or "browser_tool_set" in tools_used:
-        print("  ⚠️  WARNING: Browser tool was used!", file=sys.stderr)
+    if "browser" in tools_used or any("browser" in t.lower() for t in tools_used):
+        print("  ❌ FAIL: Browser tool was used!", file=sys.stderr)
         return False
     else:
-        print("  ✓ Browser tool was NOT used - configuration worked!")
+        print("  ✅ PASS: No browser tools were used")
         return True
 
 

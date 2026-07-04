@@ -158,8 +158,27 @@ Output:
   ✓ conversation completed successfully
 
 === Verifying tools ===
-  tools actually used: ['file_editor', 'terminal']
-  ✓ Browser tool was NOT used - configuration worked!
+
+  Available tools:
+  total tools: 7
+
+  🔧 Core tools (5):
+    • terminal
+    • file_editor
+    • task_tracker
+    • finish
+    • think
+
+  🔌 Create tools (1):
+    • default_create_pr
+
+  🔌 Tavily tools (1):
+    • default_tavily_tavily_search
+
+  ✅ PASS: No browser tools in available tools list
+
+  Tools actually used: ['file_editor', 'terminal']
+  ✅ PASS: No browser tools were used
 
 === Results ===
 View conversation: https://app.all-hands.dev/conversations/def456...
@@ -245,7 +264,28 @@ requests.post(
 
 ### 5. Verify Tools
 
-Inspect conversation events to see which tools were actually used:
+The script now performs comprehensive tool verification:
+
+**a) Get available tools from SystemPromptEvent:**
+
+```python
+# Get the actual tools that were configured for the agent
+response = requests.get(
+    f"{agent_server_url}/api/conversations/{conv_id}/events/search?kind__eq=SystemPromptEvent&limit=1",
+    headers={"X-Session-API-Key": session_key}
+)
+
+system_event = response.json()["items"][0]
+available_tools = system_event["tools"]
+
+# Check if browser tools are in the list
+has_browser = any(
+    "browser" in tool.get("title", "").lower() 
+    for tool in available_tools
+)
+```
+
+**b) Check which tools were actually used:**
 
 ```python
 response = requests.get(
@@ -258,6 +298,28 @@ tools_used = {
     for event in response.json()["items"]
     if event.get("kind") == "ActionEvent"
 }
+```
+
+The script displays tools grouped by category for easy verification:
+
+```
+Available tools:
+  total tools: 7
+
+  🔧 Core tools (5):
+    • terminal
+    • file_editor
+    • task_tracker
+    • finish
+    • think
+
+  🔌 Create tools (1):
+    • default_create_pr
+
+  ✅ PASS: No browser tools in available tools list
+
+Tools actually used: ['file_editor', 'terminal']
+  ✅ PASS: No browser tools were used
 ```
 
 ## Available Tools
