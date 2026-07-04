@@ -18,6 +18,8 @@ A collection of example code for working with the OpenHands API.
 | [command-blacklist](./command-blacklist/) | Block dangerous shell commands with PreToolUse hooks (blacklist approach with snarky messages) |
 | [command-whitelist](./command-whitelist/) | Only allow approved shell commands with PreToolUse hooks (whitelist approach for strict security) |
 | [workspace-isolation](./workspace-isolation/) | **Advanced:** Enforce directory boundaries with hooks - prevent agents from navigating/writing outside assigned workspace (based on jpshackelford/lxa) |
+| [custom-agent-no-browser](./custom-agent-no-browser/) | Request custom tool configuration via Cloud REST API (e.g., terminal + file_editor only, no browser) |
+| [custom-agent-with-tool](./custom-agent-with-tool/) | Create a custom tool using the OpenHands SDK and include it in your agent (Rubber Duck Debugger example) |
 
 ## API Versions
 

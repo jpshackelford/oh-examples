@@ -4,7 +4,7 @@ Create a custom agent that includes your own tool implementation. This example a
 
 ## Why create custom tools?
 
-Built-in tools cover common operations (bash, file editing, web browsing), but your agent might need specialized capabilities:
+Built-in tools cover common operations (terminal, file editing, web browsing), but your agent might need specialized capabilities:
 
 - 🛠️ **Domain-specific operations**: Call your company's internal APIs
 - 🔧 **Specialized workflows**: Multi-step operations as a single tool
@@ -22,30 +22,56 @@ Our custom tool implements "[rubber duck debugging](https://en.wikipedia.org/wik
 
 ## How custom tools work
 
-Custom tools are Python classes that inherit from `ToolDefinition`:
+Custom tools in the OpenHands SDK follow a structured pattern with several components:
 
 ```python
-from openhands.sdk.tool import ToolDefinition
+from collections.abc import Sequence
+from pydantic import Field
+from openhands.sdk import Action, Observation, Tool
+from openhands.sdk.tool import ToolDefinition, ToolExecutor, register_tool
 
-class RubberDuckTool(ToolDefinition):
-    name = "rubber_duck"
-    description = "Explain code to the Rubber Duck for debugging clarity."
-    
-    def execute(self, code: str | None = None, **kwargs) -> str:
-        # Tool implementation here
-        return "🦆 *Quack!* Here's what I notice..."
+# 1. Define the Action (input schema)
+class RubberDuckAction(Action):
+    code: str | None = Field(default=None, description="Code to debug")
+    problem: str | None = Field(default=None, description="Problem description")
+
+# 2. Define the Observation (output schema)
+class RubberDuckObservation(Observation):
+    advice: str = Field(description="The duck's wisdom")
+
+# 3. Implement the Executor (the actual logic)
+class RubberDuckExecutor(ToolExecutor[RubberDuckAction, RubberDuckObservation]):
+    def __call__(self, action: RubberDuckAction, conversation=None):
+        advice = "🦆 *Quack!* Have you checked for off-by-one errors?"
+        return RubberDuckObservation.from_text(text=advice, advice=advice)
+
+# 4. Create the ToolDefinition (wires it all together)
+class RubberDuckTool(ToolDefinition[RubberDuckAction, RubberDuckObservation]):
+    @classmethod
+    def create(cls, conv_state) -> Sequence["RubberDuckTool"]:
+        return [cls(
+            description="Rubber duck debugging wisdom",
+            action_type=RubberDuckAction,
+            observation_type=RubberDuckObservation,
+            executor=RubberDuckExecutor(),
+        )]
+
+# 5. Register the tool so it can be referenced by name
+register_tool("rubber_duck", RubberDuckTool)
 ```
 
-Then register it with your agent:
+Then use it in your agent:
 
 ```python
-from openhands.sdk import Agent, Tool
+from openhands.sdk import Agent, Tool, LLM, Conversation
+from openhands.tools.terminal import TerminalTool
+from openhands.tools.file_editor import FileEditorTool
 
 agent = Agent(
     llm=llm,
     tools=[
-        Tool(name="bash"),
-        Tool(name="file_editor"),
+        Tool(name=TerminalTool.name),
+        Tool(name=FileEditorTool.name),
         Tool(name="rubber_duck"),  # ← Your custom tool!
     ]
 )
@@ -77,7 +103,7 @@ Sample output:
 Using model: anthropic/claude-3-5-sonnet-20241022
 
 Creating agent with tools:
-  ✓ bash
+  ✓ terminal
   ✓ file_editor
   🦆 rubber_duck (custom!)
 
@@ -110,35 +136,18 @@ Check /tmp/rubber-duck-demo/buggy_calculator.py for the result
 | Approach | Custom Tools? | Use Case |
 |----------|---------------|----------|
 | **SDK (this example)** | ✅ Yes | Local development, scripts, automation |
-| **Cloud API** | ⚠️ Requires upload | Production deployments |
-| **Automation system** | ✅ Yes (via tarball) | Scheduled/event-triggered tasks |
+| **Cloud API** | ⚠️ Requires packaging | Production deployments |
+| **Automation system** | ✅ Yes (via upload) | Scheduled/event-triggered tasks |
 
 ### For Cloud deployments
 
-To use custom tools with OpenHands Cloud (`app.all-hands.dev`), you have three options:
+To use custom tools with OpenHands Cloud (`app.all-hands.dev`), you need to package your tool code:
 
-**Option 1: Automation system** (recommended for scheduled/event-driven tasks)
+**Option 1: Custom base image** (recommended for persistent tools)
 
-Package your tool and agent as a tarball and upload via the automation API:
+Build a Docker image with your tool pre-installed, deploy it as an agent-server, and point Cloud conversations to it. See the SDK documentation on [custom agent server images](https://docs.openhands.dev/sdk/guides/agent-server/docker-sandbox).
 
-```python
-# Structure:
-my-automation/
-  ├── main.py                 # Entrypoint
-  ├── tools/
-  │   └── rubber_duck.py      # Your tool
-  └── requirements.txt
-
-# Upload as tarball to /api/automation/v1/preset/...
-```
-
-See [automation documentation](https://github.com/OpenHands/OpenHands/tree/main/automation) for details.
-
-**Option 2: Custom base image**
-
-Build a Docker image with your tool pre-installed, deploy it as an agent-server, and point Cloud conversations to it.
-
-**Option 3: Plugin system**
+**Option 2: Plugin system**
 
 Package your tool as a plugin and load it via the `plugins` parameter when creating conversations. See [`load-plugin`](../load-plugin/) example.
 
@@ -161,29 +170,28 @@ Be specific about:
 - When to use it
 - What parameters it accepts
 
-### 2. Error handling
+### 2. Type-safe parameters
 
-Raise `ToolError` for invalid inputs:
+Use Pydantic `Field` to document parameters:
 
 ```python
-from openhands.sdk.tool import ToolError
-
-def execute(self, code: str | None = None, **kwargs) -> str:
-    if not code:
-        raise ToolError("Please provide 'code' parameter!")
-    # ...
+class MyAction(Action):
+    query: str = Field(description="The search query")
+    limit: int = Field(default=10, description="Max results to return")
 ```
 
 ### 3. Informative output
 
-Return structured, readable output:
+Return structured, readable output via `Observation.from_text()`:
 
 ```python
-return (
-    "🦆 *Quack!* Here's what I notice:\n"
-    "  • Check for off-by-one errors\n"
-    "  • Are variables initialized?\n"
-    "  • Try printing intermediate values\n"
+return RubberDuckObservation.from_text(
+    text=(
+        "🦆 *Quack!* Here's what I notice:\n"
+        "  • Check for off-by-one errors\n"
+        "  • Are variables initialized?\n"
+    ),
+    advice="Check for off-by-one errors and initialization"
 )
 ```
 
@@ -196,56 +204,40 @@ Beyond rubber ducks, here are practical custom tools:
 **API Client Tool**
 ```python
 class SlackTool(ToolDefinition):
-    name = "slack"
-    description = "Send messages to Slack channels"
-    
-    def execute(self, channel: str, message: str) -> str:
-        # Call Slack API
-        ...
+    # Send messages to Slack channels
+    ...
 ```
 
 **Database Query Tool**
 ```python
 class QueryTool(ToolDefinition):
-    name = "query_db"
-    description = "Execute read-only SQL queries"
-    
-    def execute(self, query: str) -> str:
-        # Execute query, return results
-        ...
+    # Execute read-only SQL queries
+    ...
 ```
 
 **Deployment Tool**
 ```python
 class DeployTool(ToolDefinition):
-    name = "deploy"
-    description = "Deploy code to staging environment"
-    
-    def execute(self, branch: str) -> str:
-        # Trigger deployment pipeline
-        ...
+    # Trigger deployment pipeline
+    ...
 ```
 
 The possibilities are endless! 🚀
 
 ## Key takeaway
 
-Custom tools extend what your agent can do. The SDK makes it trivial:
+Custom tools extend what your agent can do. The SDK provides a structured pattern:
 
-1. ✅ Define a class with `name`, `description`, and `execute()`
-2. ✅ Add `Tool(name="your_tool")` to the agent's tools list
-3. ✅ The agent can now use your tool!
+1. ✅ Define `Action` (input), `Observation` (output), and `Executor` (logic)
+2. ✅ Create a `ToolDefinition` with a `create()` classmethod
+3. ✅ Register with `register_tool(name, ToolClass)`
+4. ✅ Add `Tool(name=...)` to your agent's tools list
 
-For local development, it's this simple. For Cloud deployments, you'll need to package and upload your tool code.
-
-## Files in this example
-
-- `agent_with_custom_tool.py` — Complete working example with RubberDuckTool
-- `README.md` — This file
+For local development, it's this simple. For Cloud deployments, you'll need to package your tool code in a custom image or plugin.
 
 ## See also
 
 - [`custom-agent-no-browser/`](../custom-agent-no-browser/) — Customize agent by selecting built-in tools
 - [`load-plugin/`](../load-plugin/) — Load plugins that bundle tools and capabilities
-- [OpenHands SDK Tool documentation](https://docs.openhands.dev/sdk/guides/custom-tools)
 - [OpenHands SDK Custom Tools guide](https://docs.openhands.dev/sdk/guides/custom-tools)
+- [Official SDK custom tools example](https://github.com/OpenHands/software-agent-sdk/blob/main/examples/01_standalone_sdk/02_custom_tools.py)

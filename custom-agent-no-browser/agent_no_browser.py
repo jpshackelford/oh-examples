@@ -11,21 +11,18 @@ This is useful when:
   - You want to reduce the agent's surface area for security or cost reasons
   - You're focusing on code-only tasks without web research
 
-The key insight: OpenHands agents are configured via the SDK's `Agent` class
-with explicit tool selection. There's no magic — you pass a list of `Tool`
-objects, and that's exactly what the agent can use.
-
-Under the hood, this is the same approach the OpenHands "Code Agent" uses,
-except we're removing the browser tool from the default toolset.
+The key insight: OpenHands agents are configured via the Cloud API's
+`agent_settings` parameter when creating conversations. You can specify
+which tools to include, though the exact behavior may vary by deployment.
 
 Run this example:
     export OH_API_KEY=...        # your https://app.all-hands.dev API key
     python agent_no_browser.py
 
 The script will:
-  1. Create a custom agent with only bash and file_editor tools
-  2. Start a conversation and ask the agent to create a Python script
-  3. The agent will complete the task using only file editing (no browser)
+  1. Create a conversation specifying terminal and file_editor tools
+  2. Ask the agent to create a Python script
+  3. Wait for the agent to complete the task
   4. Clean up the conversation and sandbox (unless --keep is used)
 """
 
@@ -79,10 +76,14 @@ def parse_args() -> argparse.Namespace:
 
 def start_conversation(base_url: str, headers: dict, args: argparse.Namespace) -> str:
     """Create a conversation with custom agent configuration.
-    
+
     The key part: we pass `agent_settings` to configure the agent with
-    only the tools we want. Here we explicitly include bash and file_editor,
+    only the tools we want. Here we explicitly include terminal and file_editor,
     but omit the browser tool.
+
+    Note: The Cloud API's tool configuration behavior may vary. In some
+    deployments, agent_settings.tools may be advisory rather than strictly
+    enforced. Check the actual tools available in your conversation.
     """
     payload = {
         "initial_message": {
@@ -93,8 +94,8 @@ def start_conversation(base_url: str, headers: dict, args: argparse.Namespace) -
         # This is where we customize the agent!
         "agent_settings": {
             "tools": [
-                {"name": "bash"},         # ✅ Terminal access
-                {"name": "file_editor"},  # ✅ File editing
+                {"name": "terminal"},      # ✅ Terminal access
+                {"name": "file_editor"},   # ✅ File editing
                 # ❌ No browser tool!
             ],
         },
@@ -156,27 +157,29 @@ def wait_until_ready(base_url: str, headers: dict, conv_id: str, timeout: int) -
         time.sleep(3)
 
 
-def wait_for_agent_idle(base_url: str, headers: dict, conv_id: str, timeout: int = 300):
-    """Wait for the agent to finish processing (agent_state = IDLE)."""
+def wait_for_agent_completion(
+    base_url: str, headers: dict, conv_id: str, timeout: int = 300
+):
+    """Wait for the agent to finish processing (execution_status = finished)."""
     deadline = time.monotonic() + timeout
     print("\n=== waiting for agent to complete task ===")
     while True:
         conv = get_conversation(base_url, headers, conv_id)
-        agent_state = conv.get("agent_state", "UNKNOWN")
-        print(f"  agent state: {agent_state}")
-        
-        if agent_state == "IDLE":
+        execution_status = conv.get("execution_status", "unknown")
+        print(f"  execution status: {execution_status}")
+
+        if execution_status == "finished":
             print("  ✓ agent completed the task")
             return
-        
-        if agent_state == "ERROR":
+
+        if execution_status == "error":
             print("  ✗ agent encountered an error")
             return
-        
+
         if time.monotonic() > deadline:
             print(f"  ⚠ agent still working after {timeout}s")
             return
-        
+
         time.sleep(5)
 
 
@@ -197,32 +200,30 @@ def main() -> None:
     args = parse_args()
     if not args.api_key:
         sys.exit("error: set --api-key or the OH_API_KEY environment variable")
-    
+
     headers = {"X-Session-API-Key": args.api_key}
 
     print("=== creating conversation with custom agent (no browser) ===")
     print(f"Task: {args.message}\n")
-    
+
     # Start the conversation with our custom agent configuration
     conv_id = start_conversation(args.base_url, headers, args)
     print(f"conversation: {conv_id}")
-    
+
     # Wait for sandbox to be ready
     conv = wait_until_ready(args.base_url, headers, conv_id, args.poll_timeout)
     sandbox_id = conv.get("sandbox_id")
-    
+
     # Wait for the agent to complete the task
-    wait_for_agent_idle(args.base_url, headers, conv_id)
-    
+    wait_for_agent_completion(args.base_url, headers, conv_id)
+
     # Show the result
     print("\n=== result ===")
     conv_url = f"{args.base_url}/conversations/{conv_id}"
     print(f"View the conversation: {conv_url}")
-    print("\nThe agent completed the task using ONLY:")
-    print("  ✓ bash (terminal)")
-    print("  ✓ file_editor")
-    print("  ✗ NO browser tool!")
-    
+    print("\nThe agent completed the task.")
+    print("To verify which tools were actually available, check the conversation UI.")
+
     # Clean up or keep
     if args.keep:
         print(f"\nLeft running (--keep). Open: {conv_url}")

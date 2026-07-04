@@ -1,6 +1,6 @@
 # Custom Agent Without Browser Tool
 
-Create a custom agent configuration by selectively choosing which tools to include. This example shows how to build an agent that has terminal and file editing capabilities but **explicitly excludes the browser tool**.
+This example demonstrates how to request a custom tool configuration when creating an OpenHands conversation via the Cloud REST API. We specify that we want only `terminal` and `file_editor` tools, excluding the browser.
 
 ## Why customize agent tools?
 
@@ -13,36 +13,47 @@ Different tasks need different capabilities. You might want to restrict tools wh
 
 ## How it works
 
-OpenHands agents are configured via the SDK's `Agent` class with explicit tool selection. When creating a conversation, you pass `agent_settings` with the tools you want:
+OpenHands Cloud API accepts an `agent_settings` parameter when creating conversations. You can specify which tools to include:
 
 ```python
 payload = {
     "initial_message": {...},
     "agent_settings": {
         "tools": [
-            {"name": "bash"},         # ✅ Terminal access
-            {"name": "file_editor"},  # ✅ File editing
+            {"name": "terminal"},      # ✅ Terminal access
+            {"name": "file_editor"},   # ✅ File editing
             # ❌ No browser tool!
         ],
     },
 }
 ```
 
-That's it! The agent will only have access to the tools you specify.
+**Note**: The exact behavior of tool configuration may vary by OpenHands deployment. In some cases, `agent_settings.tools` may be advisory. To verify which tools are actually available to your agent, check the conversation in the UI or query the agent-server configuration endpoint.
 
-## The full picture
+## The full picture (SDK)
 
-This is the **same approach** the OpenHands UI uses for "Code Agent" vs "Plan Agent":
+For local SDK usage, you have full control over tools:
 
-| Agent Type | Tools | What It Can Do |
-|------------|-------|----------------|
-| **Code Agent** (default) | `bash`, `file_editor`, `browser` | Full execution + web access |
-| **Plan Agent** | `glob`, `grep`, `planning_file_editor` | Read-only planning |
-| **This Example** | `bash`, `file_editor` | Code execution without web |
+```python
+from openhands.sdk import Agent, Tool, LLM, Conversation
+from openhands.tools.terminal import TerminalTool
+from openhands.tools.file_editor import FileEditorTool
 
-All three use the same `Agent` class under the hood — just different tool configurations!
+agent = Agent(
+    llm=llm,
+    tools=[
+        Tool(name=TerminalTool.name),     # terminal
+        Tool(name=FileEditorTool.name),   # file_editor
+        # No browser_tool_set
+    ]
+)
 
-## Run it
+conversation = Conversation(agent=agent, workspace="/path/to/workspace")
+```
+
+In SDK mode, the agent gets exactly the tools you specify.
+
+## Run it (Cloud API)
 
 ```bash
 export OH_API_KEY=...        # your https://app.all-hands.dev API key
@@ -66,18 +77,16 @@ conversation: a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
   sandbox status: RUNNING
 
 === waiting for agent to complete task ===
-  agent state: RUNNING
-  agent state: RUNNING
-  agent state: IDLE
+  execution status: running
+  execution status: running
+  execution status: finished
   ✓ agent completed the task
 
 === result ===
 View the conversation: https://app.all-hands.dev/conversations/a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
 
-The agent completed the task using ONLY:
-  ✓ bash (terminal)
-  ✓ file_editor
-  ✗ NO browser tool!
+The agent completed the task.
+To verify which tools were actually available, check the conversation UI.
 
 === cleanup ===
   deleted conversation a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
@@ -86,11 +95,11 @@ The agent completed the task using ONLY:
 
 ## Verify it worked
 
-Open the conversation URL in the output. In the conversation, you'll see:
+Open the conversation URL in the output. In the conversation, you can:
 
-1. ✅ The agent created the Python script using `file_editor`
-2. ✅ The agent can run bash commands to verify
-3. ❌ The agent has NO browser tool available (check the tools list in UI)
+1. ✅ See which tools the agent used
+2. ✅ Verify the agent completed the task
+3. 🔍 Check the conversation configuration to see the actual tool set
 
 ## Customize further
 
@@ -116,37 +125,23 @@ python agent_no_browser.py \
 | `--keep` | — | off | Don't delete the conversation/sandbox |
 | `--poll-timeout` | `POLL_TIMEOUT` | `240` | Seconds to wait for readiness |
 
-## Other tool combinations
+## Agent types and tool configurations
 
-You can create many different agent configurations:
+Different OpenHands agent types use different tool sets:
 
-**Research agent** (browser only, no execution):
-```python
-"tools": [
-    {"name": "browser"},
-    {"name": "grep"},
-]
-```
+| Agent Type | Typical Tools | Use Case |
+|------------|---------------|----------|
+| **Code Agent** (default) | `terminal`, `file_editor`, `browser_tool_set`, `task_tracker` | Full execution + web access |
+| **Plan Agent** | `glob`, `grep`, `planning_file_editor` | Read-only planning |
+| **Custom (SDK)** | Your choice | Specialized tasks |
 
-**Analysis agent** (read-only):
-```python
-"tools": [
-    {"name": "grep"},
-    {"name": "glob"},
-]
-```
-
-**Planning agent** (use the preset):
-```python
-# Or just set agent_type="plan" to use the built-in planning agent
-"agent_type": "plan"
-```
+When using the Cloud API, you can request specific tools via `agent_settings`, but the exact behavior depends on your deployment configuration.
 
 ## Key takeaway
 
-**Custom agents are just tool configurations** — no special classes, no complex setup. Pass the tools you want, and that's exactly what the agent can use!
+**You can request custom tool configurations via the Cloud API's `agent_settings` parameter**, though the exact enforcement may vary by deployment.
 
-The OpenHands SDK makes it trivial to create specialized agents for different tasks. 🚀
+For guaranteed control over tools, use the **OpenHands SDK** locally where you have full control over agent configuration. See the [SDK custom tools guide](https://docs.openhands.dev/sdk/guides/custom-tools) for details.
 
 ## API endpoints used
 
@@ -154,12 +149,13 @@ The OpenHands SDK makes it trivial to create specialized agents for different ta
 |----------|---------|
 | `POST /api/v1/app-conversations` | Create conversation with custom agent_settings |
 | `GET /api/v1/app-conversations/start-tasks?ids=` | Poll for conversation id |
-| `GET /api/v1/app-conversations?ids=` | Check agent state and sandbox status |
+| `GET /api/v1/app-conversations?ids=` | Check execution status and sandbox status |
 | `DELETE /api/v1/app-conversations/{id}` | Clean up the conversation |
 | `DELETE /api/v1/sandboxes/{id}` | Clean up the sandbox |
 
 ## See also
 
-- [`custom-agent-with-tool/`](../custom-agent-with-tool/) — Add a custom tool to the agent
+- [`custom-agent-with-tool/`](../custom-agent-with-tool/) — Add a custom tool to the agent (SDK)
 - [`load-plugin/`](../load-plugin/) — Load plugins that extend agent capabilities
 - [OpenHands SDK Agent documentation](https://docs.openhands.dev/sdk/arch/agent)
+- [OpenHands SDK Custom Tools guide](https://docs.openhands.dev/sdk/guides/custom-tools)
