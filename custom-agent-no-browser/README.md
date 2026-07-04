@@ -1,161 +1,330 @@
-# Custom Agent Without Browser Tool
+# Custom Agent Configuration via Agent-Server API
 
-This example demonstrates how to request a custom tool configuration when creating an OpenHands conversation via the Cloud REST API. We specify that we want only `terminal` and `file_editor` tools, excluding the browser.
+This example demonstrates **the correct pattern** for customizing agent tools using the OpenHands agent-server API.
 
-## Why customize agent tools?
+## What This Example Shows
 
-Different tasks need different capabilities. You might want to restrict tools when:
+✅ **How to configure an agent-server with custom tools** (excluding browser)  
+✅ **Two different approaches** for specifying tools  
+✅ **Verification** that the configuration actually works  
+✅ **The complete workflow** from sandbox creation to cleanup  
 
-- 🔒 **Security**: Limit the agent to local operations only
-- 🌐 **Environment**: Working without internet access
-- 💰 **Cost**: Browser operations can be expensive (rendering, screenshots)
-- 🎯 **Focus**: Code-only tasks don't need web research
+## The Key Insight
 
-## How it works
+**You cannot configure tools via the Cloud API alone.**
 
-OpenHands Cloud API accepts an `agent_settings` parameter when creating conversations. You can specify which tools to include:
+The Cloud API (`POST /api/v1/app-conversations`) accepts an `agent_settings` parameter, but it is **not honored** by the agent-server. To actually customize tools, you must:
 
-```python
-payload = {
-    "initial_message": {...},
-    "agent_settings": {
-        "tools": [
-            {"name": "terminal"},      # ✅ Terminal access
-            {"name": "file_editor"},   # ✅ File editing
-            # ❌ No browser tool!
-        ],
-    },
-}
-```
+1. **Get the agent-server URL and session key** from the Cloud API
+2. **Call the agent-server API directly** to configure tools
+3. **Use one of two methods** (described below)
 
-**Note**: The exact behavior of tool configuration may vary by OpenHands deployment. In some cases, `agent_settings.tools` may be advisory. To verify which tools are actually available to your agent, check the conversation in the UI or query the agent-server configuration endpoint.
+## Two Methods for Customizing Tools
 
-## The full picture (SDK)
+### Method 1: Configure Agent-Server Settings (Recommended)
 
-For local SDK usage, you have full control over tools:
+**Use `PATCH /api/settings` to set default tools for the entire agent-server instance:**
 
 ```python
-from openhands.sdk import Agent, Tool, LLM, Conversation
-from openhands.tools.terminal import TerminalTool
-from openhands.tools.file_editor import FileEditorTool
-
-agent = Agent(
-    llm=llm,
-    tools=[
-        Tool(name=TerminalTool.name),     # terminal
-        Tool(name=FileEditorTool.name),   # file_editor
-        # No browser_tool_set
-    ]
+# Configure the agent-server
+requests.patch(
+    f"{agent_server_url}/api/settings",
+    headers={"X-Session-API-Key": session_key},
+    json={
+        "agent_settings_diff": {
+            "tools": [
+                {"name": "terminal"},
+                {"name": "file_editor"},
+                {"name": "task_tracker"}
+            ]
+        }
+    }
 )
 
-conversation = Conversation(agent=agent, workspace="/path/to/workspace")
+# Create conversation - it uses configured tools
+requests.post(
+    f"{agent_server_url}/api/conversations",
+    headers={"X-Session-API-Key": session_key},
+    json={
+        "initial_message": {"content": [{"text": "Hello!"}]}
+    }
+)
 ```
 
-In SDK mode, the agent gets exactly the tools you specify.
+**Pros:**
+- Tools apply to all future conversations on this agent-server
+- Cleaner conversation creation (no need to repeat tools)
 
-## Run it (Cloud API)
+**Cons:**
+- Stateful - settings persist across conversations
+- Must remember to configure before first conversation
+
+### Method 2: Pass Tools Inline (Per-Conversation)
+
+**Pass tools directly when creating each conversation:**
+
+```python
+requests.post(
+    f"{agent_server_url}/api/conversations",
+    headers={"X-Session-API-Key": session_key},
+    json={
+        "agent": {
+            "tools": [
+                {"name": "terminal"},
+                {"name": "file_editor"},
+                {"name": "task_tracker"}
+            ]
+        },
+        "initial_message": {"content": [{"text": "Hello!"}]}
+    }
+)
+```
+
+**Pros:**
+- Explicit per-conversation control
+- No shared state between conversations
+
+**Cons:**
+- Must repeat tools for each conversation
+- More verbose
+
+## Usage
+
+### Prerequisites
 
 ```bash
-export OH_API_KEY=...        # your https://app.all-hands.dev API key
 pip install requests
+export OH_API_KEY=your-cloud-api-key
+```
 
-# Zero-config: creates a conversation with the custom agent,
-# asks it to create a Python script, waits for completion,
-# then cleans up.
+### Run with Settings Method (Default)
+
+```bash
 python agent_no_browser.py
 ```
 
-Sample output:
-
+Output:
 ```
-=== creating conversation with custom agent (no browser) ===
-Task: Create a Python script called 'hello.py' that prints 'Hello, Custom Agent!' Then show me the file content to confirm it was created.
+=== Creating sandbox via Cloud API ===
+  conversation: abc123...
+  waiting for sandbox...
+  ✓ sandbox ready: 2ueOd9wbc71U...
+  agent-server: https://xxx.prod-runtime.all-hands.dev
+  cleaned up temp conversation
 
-  start-task status: STARTING_CONVERSATION
-  start-task status: READY
-conversation: a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
-  sandbox status: RUNNING
+=== Configuring agent-server with custom tools ===
+  ✓ configured 3 tools:
+    - terminal
+    - file_editor
+    - task_tracker
+  ✓ browser_tool_set successfully excluded
 
-=== waiting for agent to complete task ===
-  execution status: running
-  execution status: running
-  execution status: finished
-  ✓ agent completed the task
+=== Creating conversation (method: settings) ===
+  using tools from agent-server settings
+  ✓ conversation created: def456...
 
-=== result ===
-View the conversation: https://app.all-hands.dev/conversations/a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
+=== Running conversation ===
+  conversation started
+  waiting for completion...
+    execution_status: running
+    execution_status: finished
+  ✓ conversation completed successfully
 
-The agent completed the task.
-To verify which tools were actually available, check the conversation UI.
+=== Verifying tools ===
+  tools actually used: ['file_editor', 'terminal']
+  ✓ Browser tool was NOT used - configuration worked!
 
-=== cleanup ===
-  deleted conversation a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
-  deleted sandbox AbC123XyZ
+=== Results ===
+View conversation: https://app.all-hands.dev/conversations/def456...
 ```
 
-## Verify it worked
+### Run with Inline Method
 
-Open the conversation URL in the output. In the conversation, you can:
+```bash
+python agent_no_browser.py --method inline
+```
 
-1. ✅ See which tools the agent used
-2. ✅ Verify the agent completed the task
-3. 🔍 Check the conversation configuration to see the actual tool set
+This passes tools directly in the conversation creation request instead of configuring the agent-server first.
 
-## Customize further
-
-Pass `--keep` to leave the conversation open for inspection:
+### Keep Resources for Inspection
 
 ```bash
 python agent_no_browser.py --keep
 ```
 
-Or customize the task:
+This skips cleanup so you can inspect the conversation in the UI.
 
-```bash
-python agent_no_browser.py \
-    --message "Create a simple REST API with Flask" \
-    --keep
+## How It Works
+
+### 1. Create Sandbox via Cloud API
+
+```python
+response = requests.post(
+    "https://app.all-hands.dev/api/v1/app-conversations",
+    headers={"Authorization": f"Bearer {api_key}"},
+    json={"github_token": None, "selected_repository": None}
+)
 ```
 
-| Flag | Env var | Default | Purpose |
-|------|---------|---------|---------|
-| `--api-key` | `OH_API_KEY` | — (required) | Cloud API key |
-| `--base-url` | `OH_API_BASE` | `https://app.all-hands.dev` | Cloud app server |
-| `--message` | `INITIAL_MESSAGE` | demo task | Task for the agent |
-| `--keep` | — | off | Don't delete the conversation/sandbox |
-| `--poll-timeout` | `POLL_TIMEOUT` | `240` | Seconds to wait for readiness |
+This gives us:
+- `sandbox_id`: Unique sandbox identifier
+- `session_api_key`: Authentication for agent-server API
+- `conversation_url`: Contains agent-server URL
 
-## Agent types and tool configurations
+### 2. Configure Agent-Server
 
-Different OpenHands agent types use different tool sets:
+**Method 1** (Settings):
+```python
+requests.patch(
+    f"{agent_server_url}/api/settings",
+    headers={"X-Session-API-Key": session_key},
+    json={"agent_settings_diff": {"tools": [...]}}
+)
+```
 
-| Agent Type | Typical Tools | Use Case |
-|------------|---------------|----------|
-| **Code Agent** (default) | `terminal`, `file_editor`, `browser_tool_set`, `task_tracker` | Full execution + web access |
-| **Plan Agent** | `glob`, `grep`, `planning_file_editor` | Read-only planning |
-| **Custom (SDK)** | Your choice | Specialized tasks |
+**Method 2** (Inline): Skip this step
 
-When using the Cloud API, you can request specific tools via `agent_settings`, but the exact behavior depends on your deployment configuration.
+### 3. Create Conversation
 
-## Key takeaway
+**Method 1** (Settings):
+```python
+requests.post(
+    f"{agent_server_url}/api/conversations",
+    headers={"X-Session-API-Key": session_key},
+    json={"initial_message": {...}}
+)
+```
 
-**You can request custom tool configurations via the Cloud API's `agent_settings` parameter**, though the exact enforcement may vary by deployment.
+**Method 2** (Inline):
+```python
+requests.post(
+    f"{agent_server_url}/api/conversations",
+    headers={"X-Session-API-Key": session_key},
+    json={
+        "agent": {"tools": [...]},
+        "initial_message": {...}
+    }
+)
+```
 
-For guaranteed control over tools, use the **OpenHands SDK** locally where you have full control over agent configuration. See the [SDK custom tools guide](https://docs.openhands.dev/sdk/guides/custom-tools) for details.
+### 4. Run Conversation
 
-## API endpoints used
+```python
+requests.post(
+    f"{agent_server_url}/api/conversations/{conv_id}/run",
+    headers={"X-Session-API-Key": session_key}
+)
+```
 
-| Endpoint | Purpose |
-|----------|---------|
-| `POST /api/v1/app-conversations` | Create conversation with custom agent_settings |
-| `GET /api/v1/app-conversations/start-tasks?ids=` | Poll for conversation id |
-| `GET /api/v1/app-conversations?ids=` | Check execution status and sandbox status |
-| `DELETE /api/v1/app-conversations/{id}` | Clean up the conversation |
-| `DELETE /api/v1/sandboxes/{id}` | Clean up the sandbox |
+### 5. Verify Tools
 
-## See also
+Inspect conversation events to see which tools were actually used:
 
-- [`custom-agent-with-tool/`](../custom-agent-with-tool/) — Add a custom tool to the agent (SDK)
-- [`load-plugin/`](../load-plugin/) — Load plugins that extend agent capabilities
-- [OpenHands SDK Agent documentation](https://docs.openhands.dev/sdk/arch/agent)
-- [OpenHands SDK Custom Tools guide](https://docs.openhands.dev/sdk/guides/custom-tools)
+```python
+response = requests.get(
+    f"{agent_server_url}/api/conversations/{conv_id}/events/search",
+    headers={"X-Session-API-Key": session_key}
+)
+
+tools_used = {
+    event["tool_name"] 
+    for event in response.json()["items"]
+    if event.get("kind") == "ActionEvent"
+}
+```
+
+## Available Tools
+
+Common tool names you can include:
+
+- `terminal` - Execute bash commands
+- `file_editor` - Read/write/edit files
+- `task_tracker` - Track tasks and progress
+- `browser_tool_set` - Web browser automation (excluded in this example)
+
+## Key Agent-Server APIs Used
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/settings` | PATCH | Configure default agent settings |
+| `/api/settings/agent-schema` | GET | Get schema of configurable settings |
+| `/api/conversations` | POST | Create conversation (can pass agent config) |
+| `/api/conversations/{id}/run` | POST | Start conversation execution |
+| `/api/conversations/{id}` | GET | Get conversation status |
+| `/api/conversations/{id}/events/search` | GET | Get conversation events |
+
+## Common Issues
+
+### "Unauthorized" error
+
+Make sure you're using the **session API key** from the conversation, not your Cloud API key:
+
+```python
+# ✗ Wrong - Cloud API key
+headers = {"Authorization": f"Bearer {cloud_api_key}"}
+
+# ✓ Correct - Session API key
+headers = {"X-Session-API-Key": session_key}
+```
+
+### Browser still appears
+
+If browser tools still appear in the conversation:
+
+1. **Check configured tools**: GET `/api/settings` and verify `agent_settings.tools`
+2. **Check tool verification**: Look at the script output for "tools actually used"
+3. **Try inline method**: Pass tools directly in conversation creation
+
+### Conversation never finishes
+
+The default timeout is 3 minutes (180 seconds). If your task is complex:
+
+1. Check the conversation in the UI: `https://app.all-hands.dev/conversations/{conv_id}`
+2. Look at events: GET `/api/conversations/{conv_id}/events/search`
+3. Consider increasing the timeout or making the task simpler
+
+## Architecture Notes
+
+### Cloud API vs Agent-Server API
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Cloud API (app.all-hands.dev)                         │
+│  - User authentication                                   │
+│  - Sandbox lifecycle (create/delete)                     │
+│  - High-level conversation management                    │
+└─────────────────────────────────────────────────────────┘
+                        │
+                        │ creates
+                        ▼
+┌─────────────────────────────────────────────────────────┐
+│  Agent-Server (sandbox-specific runtime URL)            │
+│  - Agent configuration (LLM, tools, settings)           │
+│  - Conversation execution                                │
+│  - Direct agent control                                  │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Key insight**: Agent customization happens at the **agent-server level**, not via Cloud API parameters.
+
+### Why Cloud API Doesn't Control Tools
+
+The Cloud API's `POST /api/v1/app-conversations` endpoint has an `agent_settings` parameter, but:
+
+1. It's **not passed through** to the agent-server in the current deployment
+2. The agent-server has its own **independent settings** via `/api/settings`
+3. Tool configuration **must be done via agent-server API** for it to take effect
+
+This is by design - the agent-server is the authoritative source for agent configuration.
+
+## Next Steps
+
+- See `../custom-agent-with-tool/` for adding custom tools (requires SDK)
+- See `AGENT_SERVER_API_DISCOVERY.md` for full agent-server API reference
+- See `AGENT_CUSTOMIZATION_FINDINGS.md` for research notes
+
+## Related Documentation
+
+- [OpenHands SDK Guide](https://docs.openhands.dev/sdk)
+- [Agent Profiles](https://docs.openhands.dev/sdk/guides/agent-settings)
+- [Custom Tools](https://docs.openhands.dev/sdk/guides/custom-tools)

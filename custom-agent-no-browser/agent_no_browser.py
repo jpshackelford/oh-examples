@@ -1,235 +1,352 @@
 #!/usr/bin/env python3
-"""Create a custom agent configuration without the browser tool.
+"""Configure an agent-server with custom tools (no browser).
 
-This example demonstrates how to customize agent behavior by selectively
-choosing which tools to include. We create an agent that has terminal and
-file editing capabilities but explicitly excludes the browser tool.
+This example demonstrates the correct pattern for customizing agent tools:
+1. Create a sandbox via Cloud API
+2. Get the session API key and agent-server URL
+3. Configure the agent-server with custom tools via PATCH /api/settings
+4. Create a conversation - it uses the configured tools
+5. Verify that browser tools are actually excluded
 
-This is useful when:
-  - You want to restrict the agent to local operations only
-  - You're working in an environment without internet access
-  - You want to reduce the agent's surface area for security or cost reasons
-  - You're focusing on code-only tasks without web research
+Key insight: You cannot configure tools via the Cloud API's
+POST /api/v1/app-conversations endpoint. Instead, you must:
+- Call the agent-server API directly using the session key
+- Configure tools via PATCH /api/settings before creating conversations
+- OR pass tools directly when creating each conversation
 
-The key insight: OpenHands agents are configured via the Cloud API's
-`agent_settings` parameter when creating conversations. You can specify
-which tools to include, though the exact behavior may vary by deployment.
-
-Run this example:
-    export OH_API_KEY=...        # your https://app.all-hands.dev API key
-    python agent_no_browser.py
-
-The script will:
-  1. Create a conversation specifying terminal and file_editor tools
-  2. Ask the agent to create a Python script
-  3. Wait for the agent to complete the task
-  4. Clean up the conversation and sandbox (unless --keep is used)
+This example shows both approaches.
 """
 
 import argparse
+import json
 import os
 import sys
 import time
 
 import requests
 
+# Configuration
+CLOUD_API_URL = os.getenv("OPENHANDS_CLOUD_API_URL", "https://app.all-hands.dev")
+API_KEY = os.getenv("OH_API_KEY")
 
-DEFAULT_MESSAGE = (
+if not API_KEY:
+    print("Error: OH_API_KEY environment variable not set", file=sys.stderr)
+    sys.exit(1)
+
+TASK = (
     "Create a Python script called 'hello.py' that prints 'Hello, Custom Agent!' "
     "Then show me the file content to confirm it was created."
 )
 
 
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        description="Run a custom agent without browser tool.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    p.add_argument(
-        "--api-key",
-        default=os.environ.get("OH_API_KEY"),
-        help="Cloud API key (env: OH_API_KEY).",
-    )
-    p.add_argument(
-        "--base-url",
-        default=os.environ.get("OH_API_BASE", "https://app.all-hands.dev"),
-        help="Cloud app server base URL (env: OH_API_BASE).",
-    )
-    p.add_argument(
-        "--message",
-        default=os.environ.get("INITIAL_MESSAGE", DEFAULT_MESSAGE),
-        help="First message for the conversation (env: INITIAL_MESSAGE).",
-    )
-    p.add_argument(
-        "--keep",
-        action="store_true",
-        help="Leave the conversation/sandbox running instead of deleting them.",
-    )
-    p.add_argument(
-        "--poll-timeout",
-        type=int,
-        default=int(os.environ.get("POLL_TIMEOUT", "240")),
-        help="Seconds to wait for conversation readiness (env: POLL_TIMEOUT).",
-    )
-    return p.parse_args()
+def cloud_api_request(method: str, path: str, **kwargs) -> requests.Response:
+    """Make a request to the Cloud API."""
+    url = f"{CLOUD_API_URL}{path}"
+    headers = kwargs.pop("headers", {})
+    headers["Authorization"] = f"Bearer {API_KEY}"
+    response = requests.request(method, url, headers=headers, **kwargs)
+    response.raise_for_status()
+    return response
 
 
-def start_conversation(base_url: str, headers: dict, args: argparse.Namespace) -> str:
-    """Create a conversation with custom agent configuration.
+def agent_server_request(
+    method: str, agent_server_url: str, session_key: str, path: str, **kwargs
+) -> requests.Response:
+    """Make a request to the agent-server."""
+    url = f"{agent_server_url}{path}"
+    headers = kwargs.pop("headers", {})
+    headers["X-Session-API-Key"] = session_key
+    response = requests.request(method, url, headers=headers, **kwargs)
+    response.raise_for_status()
+    return response
 
-    The key part: we pass `agent_settings` to configure the agent with
-    only the tools we want. Here we explicitly include terminal and file_editor,
-    but omit the browser tool.
 
-    Note: The Cloud API's tool configuration behavior may vary. In some
-    deployments, agent_settings.tools may be advisory rather than strictly
-    enforced. Check the actual tools available in your conversation.
+def create_sandbox() -> tuple[str, str, str]:
+    """Create a sandbox via Cloud API.
+    
+    Returns:
+        (sandbox_id, session_key, agent_server_url)
     """
+    print("\n=== Creating sandbox via Cloud API ===")
+    
+    # Create a minimal conversation just to get a sandbox
+    response = cloud_api_request(
+        "POST",
+        "/api/v1/app-conversations",
+        json={
+            "github_token": None,
+            "selected_repository": None,
+        },
+    )
+    
+    data = response.json()
+    conv_id = data["id"]
+    print(f"  conversation: {conv_id}")
+    
+    # Wait for sandbox to be ready
+    print("  waiting for sandbox...")
+    for _ in range(60):
+        response = cloud_api_request("GET", f"/api/v1/app-conversations?ids={conv_id}")
+        conv = response.json()[0]
+        
+        if conv.get("sandbox_status") == "RUNNING":
+            sandbox_id = conv["sandbox_id"]
+            session_key = conv["session_api_key"]
+            # Extract agent-server URL from conversation_url
+            conv_url = conv["conversation_url"]
+            agent_server_url = conv_url.rsplit("/api/conversations/", 1)[0]
+            
+            print(f"  ✓ sandbox ready: {sandbox_id}")
+            print(f"  agent-server: {agent_server_url}")
+            
+            # Clean up the temp conversation
+            cloud_api_request("DELETE", f"/api/v1/app-conversations/{conv_id}")
+            print(f"  cleaned up temp conversation")
+            
+            return sandbox_id, session_key, agent_server_url
+        
+        time.sleep(1)
+    
+    raise TimeoutError("Sandbox did not reach RUNNING status")
+
+
+def configure_agent_tools(agent_server_url: str, session_key: str) -> None:
+    """Configure the agent-server with custom tools (no browser).
+    
+    This uses PATCH /api/settings to set the default tools for all future
+    conversations on this agent-server instance.
+    """
+    print("\n=== Configuring agent-server with custom tools ===")
+    
+    custom_tools = [
+        {"name": "terminal"},
+        {"name": "file_editor"},
+        {"name": "task_tracker"},
+    ]
+    
+    response = agent_server_request(
+        "PATCH",
+        agent_server_url,
+        session_key,
+        "/api/settings",
+        json={
+            "agent_settings_diff": {
+                "tools": custom_tools,
+            }
+        },
+    )
+    
+    data = response.json()
+    configured_tools = data["agent_settings"]["tools"]
+    
+    print(f"  ✓ configured {len(configured_tools)} tools:")
+    for tool in configured_tools:
+        print(f"    - {tool['name']}")
+    
+    # Verify browser is NOT in the list
+    tool_names = [t["name"] for t in configured_tools]
+    if "browser_tool_set" in tool_names:
+        print("  ⚠️  WARNING: browser_tool_set is still present!", file=sys.stderr)
+    else:
+        print("  ✓ browser_tool_set successfully excluded")
+
+
+def create_conversation_with_custom_tools(
+    agent_server_url: str, session_key: str, method: str = "settings"
+) -> str:
+    """Create a conversation with custom tools.
+    
+    Args:
+        method: Either "settings" (use server-configured tools) or 
+                "inline" (pass tools in conversation creation)
+    
+    Returns:
+        conversation_id
+    """
+    print(f"\n=== Creating conversation (method: {method}) ===")
+    
     payload = {
         "initial_message": {
-            "role": "user",
-            "content": [{"type": "text", "text": args.message}],
-        },
-        "title": "custom-agent-no-browser demo",
-        # This is where we customize the agent!
-        "agent_settings": {
-            "tools": [
-                {"name": "terminal"},      # ✅ Terminal access
-                {"name": "file_editor"},   # ✅ File editing
-                # ❌ No browser tool!
-            ],
-        },
+            "content": [{"text": TASK}]
+        }
     }
-
-    resp = requests.post(
-        f"{base_url}/api/v1/app-conversations", headers=headers, json=payload
+    
+    if method == "inline":
+        # Pass tools directly in conversation creation
+        payload["agent"] = {
+            "tools": [
+                {"name": "terminal"},
+                {"name": "file_editor"},
+                {"name": "task_tracker"},
+            ]
+        }
+        print("  passing tools inline in conversation creation")
+    else:
+        print("  using tools from agent-server settings")
+    
+    response = agent_server_request(
+        "POST",
+        agent_server_url,
+        session_key,
+        "/api/conversations",
+        json=payload,
     )
-    resp.raise_for_status()
-    task = resp.json()
-    conv_id = task.get("app_conversation_id")
-    task_id = task["id"]
-
-    # Poll until the conversation is created
-    deadline = time.monotonic() + args.poll_timeout
-    while not conv_id:
-        if time.monotonic() > deadline:
-            raise TimeoutError(f"Start task {task_id} never produced a conversation")
-        time.sleep(3)
-        resp = requests.get(
-            f"{base_url}/api/v1/app-conversations/start-tasks",
-            headers=headers,
-            params={"ids": task_id},
-        )
-        resp.raise_for_status()
-        items = resp.json()
-        item = items[0] if isinstance(items, list) else items
-        status = item.get("status")
-        print(f"  start-task status: {status}")
-        conv_id = item.get("app_conversation_id")
+    
+    data = response.json()
+    conv_id = data["id"]
+    print(f"  ✓ conversation created: {conv_id}")
+    
     return conv_id
 
 
-def get_conversation(base_url: str, headers: dict, conv_id: str) -> dict:
-    """Fetch the conversation details."""
-    resp = requests.get(
-        f"{base_url}/api/v1/app-conversations",
-        headers=headers,
-        params={"ids": conv_id},
+def run_conversation(agent_server_url: str, session_key: str, conv_id: str) -> None:
+    """Run the conversation and wait for completion."""
+    print("\n=== Running conversation ===")
+    
+    # Start the conversation
+    agent_server_request(
+        "POST",
+        agent_server_url,
+        session_key,
+        f"/api/conversations/{conv_id}/run",
     )
-    resp.raise_for_status()
-    results = resp.json()
-    if not results or results[0] is None:
-        raise ValueError(f"Conversation {conv_id} not found")
-    return results[0]
-
-
-def wait_until_ready(base_url: str, headers: dict, conv_id: str, timeout: int) -> dict:
-    """Poll until the sandbox is RUNNING."""
-    deadline = time.monotonic() + timeout
-    while True:
-        conv = get_conversation(base_url, headers, conv_id)
-        status = conv.get("sandbox_status")
-        print(f"  sandbox status: {status}")
-        if status == "RUNNING":
-            return conv
-        if time.monotonic() > deadline:
-            raise TimeoutError(f"Conversation {conv_id} not ready within {timeout}s")
-        time.sleep(3)
-
-
-def wait_for_agent_completion(
-    base_url: str, headers: dict, conv_id: str, timeout: int = 300
-):
-    """Wait for the agent to finish processing (execution_status = finished)."""
-    deadline = time.monotonic() + timeout
-    print("\n=== waiting for agent to complete task ===")
-    while True:
-        conv = get_conversation(base_url, headers, conv_id)
-        execution_status = conv.get("execution_status", "unknown")
-        print(f"  execution status: {execution_status}")
-
-        if execution_status == "finished":
-            print("  ✓ agent completed the task")
-            return
-
-        if execution_status == "error":
-            print("  ✗ agent encountered an error")
-            return
-
-        if time.monotonic() > deadline:
-            print(f"  ⚠ agent still working after {timeout}s")
-            return
-
-        time.sleep(5)
-
-
-def cleanup(base_url: str, headers: dict, conv_id: str, sandbox_id: str | None) -> None:
-    """Delete the conversation and sandbox."""
-    requests.delete(f"{base_url}/api/v1/app-conversations/{conv_id}", headers=headers)
-    print(f"  deleted conversation {conv_id}")
-    if sandbox_id:
-        requests.delete(
-            f"{base_url}/api/v1/sandboxes/{sandbox_id}",
-            headers=headers,
-            params={"sandbox_id": sandbox_id},
+    print("  conversation started")
+    
+    # Poll for completion
+    print("  waiting for completion...")
+    for i in range(180):  # 3 minute timeout
+        response = agent_server_request(
+            "GET",
+            agent_server_url,
+            session_key,
+            f"/api/conversations/{conv_id}",
         )
-        print(f"  deleted sandbox {sandbox_id}")
+        data = response.json()
+        status = data.get("execution_status", "unknown")
+        
+        if i % 5 == 0:  # Print status every 5 seconds
+            print(f"    execution_status: {status}")
+        
+        if status == "finished":
+            print("  ✓ conversation completed successfully")
+            return
+        elif status == "error":
+            print("  ✗ conversation failed", file=sys.stderr)
+            return
+        
+        time.sleep(1)
+    
+    print("  ⚠️  timeout waiting for completion", file=sys.stderr)
 
 
-def main() -> None:
-    args = parse_args()
-    if not args.api_key:
-        sys.exit("error: set --api-key or the OH_API_KEY environment variable")
-
-    headers = {"X-Session-API-Key": args.api_key}
-
-    print("=== creating conversation with custom agent (no browser) ===")
-    print(f"Task: {args.message}\n")
-
-    # Start the conversation with our custom agent configuration
-    conv_id = start_conversation(args.base_url, headers, args)
-    print(f"conversation: {conv_id}")
-
-    # Wait for sandbox to be ready
-    conv = wait_until_ready(args.base_url, headers, conv_id, args.poll_timeout)
-    sandbox_id = conv.get("sandbox_id")
-
-    # Wait for the agent to complete the task
-    wait_for_agent_completion(args.base_url, headers, conv_id)
-
-    # Show the result
-    print("\n=== result ===")
-    conv_url = f"{args.base_url}/conversations/{conv_id}"
-    print(f"View the conversation: {conv_url}")
-    print("\nThe agent completed the task.")
-    print("To verify which tools were actually available, check the conversation UI.")
-
-    # Clean up or keep
-    if args.keep:
-        print(f"\nLeft running (--keep). Open: {conv_url}")
+def verify_tools(agent_server_url: str, session_key: str, conv_id: str) -> None:
+    """Verify which tools were actually available to the agent.
+    
+    This inspects the conversation events to see which tools were used.
+    """
+    print("\n=== Verifying tools ===")
+    
+    response = agent_server_request(
+        "GET",
+        agent_server_url,
+        session_key,
+        f"/api/conversations/{conv_id}/events/search?limit=100",
+    )
+    
+    data = response.json()
+    events = data.get("items", [])
+    
+    # Extract unique tool names from ActionEvents
+    tools_used = set()
+    for event in events:
+        if event.get("kind") == "ActionEvent" and "tool_name" in event:
+            tools_used.add(event["tool_name"])
+    
+    print(f"  tools actually used: {sorted(tools_used)}")
+    
+    if "browser" in tools_used or "browser_tool_set" in tools_used:
+        print("  ⚠️  WARNING: Browser tool was used!", file=sys.stderr)
+        return False
     else:
-        print("\n=== cleanup ===")
-        cleanup(args.base_url, headers, conv_id, sandbox_id)
+        print("  ✓ Browser tool was NOT used - configuration worked!")
+        return True
+
+
+def cleanup(agent_server_url: str, session_key: str, conv_id: str, sandbox_id: str) -> None:
+    """Clean up conversation and sandbox."""
+    print("\n=== Cleanup ===")
+    
+    try:
+        agent_server_request(
+            "DELETE",
+            agent_server_url,
+            session_key,
+            f"/api/conversations/{conv_id}",
+        )
+        print(f"  ✓ deleted conversation {conv_id}")
+    except Exception as e:
+        print(f"  ⚠️  failed to delete conversation: {e}", file=sys.stderr)
+    
+    try:
+        cloud_api_request("DELETE", f"/api/v1/sandboxes/{sandbox_id}")
+        print(f"  ✓ deleted sandbox {sandbox_id}")
+    except Exception as e:
+        print(f"  ⚠️  failed to delete sandbox: {e}", file=sys.stderr)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Configure agent with custom tools")
+    parser.add_argument(
+        "--method",
+        choices=["settings", "inline"],
+        default="settings",
+        help="How to specify tools: 'settings' (via PATCH /api/settings) or 'inline' (in conversation creation)",
+    )
+    parser.add_argument(
+        "--keep",
+        action="store_true",
+        help="Keep the conversation and sandbox after completion (for inspection)",
+    )
+    args = parser.parse_args()
+    
+    try:
+        # 1. Create sandbox
+        sandbox_id, session_key, agent_server_url = create_sandbox()
+        
+        # 2. Configure tools (only if using settings method)
+        if args.method == "settings":
+            configure_agent_tools(agent_server_url, session_key)
+        
+        # 3. Create conversation
+        conv_id = create_conversation_with_custom_tools(
+            agent_server_url, session_key, method=args.method
+        )
+        
+        # 4. Run conversation
+        run_conversation(agent_server_url, session_key, conv_id)
+        
+        # 5. Verify tools
+        verify_tools(agent_server_url, session_key, conv_id)
+        
+        # 6. Show results
+        print("\n=== Results ===")
+        print(f"View conversation: {CLOUD_API_URL}/conversations/{conv_id}")
+        print(f"Agent-server: {agent_server_url}")
+        
+        # 7. Cleanup (unless --keep)
+        if not args.keep:
+            cleanup(agent_server_url, session_key, conv_id, sandbox_id)
+        else:
+            print("\n=== Keeping resources (--keep flag) ===")
+            print(f"Conversation ID: {conv_id}")
+            print(f"Sandbox ID: {sandbox_id}")
+            print(f"Session key: {session_key[:20]}...")
+    
+    except Exception as e:
+        print(f"\n❌ Error: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
 
 if __name__ == "__main__":
