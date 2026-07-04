@@ -28,9 +28,17 @@ import requests
 # Configuration
 CLOUD_API_URL = os.getenv("OPENHANDS_CLOUD_API_URL", "https://app.all-hands.dev")
 API_KEY = os.getenv("OH_API_KEY")
+LLM_API_KEY = os.getenv("LLM_API_KEY")  # OpenHands LiteLLM proxy key
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://llm-proxy.app.all-hands.dev/")
+LLM_MODEL = os.getenv("LLM_MODEL", "litellm_proxy/claude-sonnet-4-5-20250929")
 
 if not API_KEY:
     print("Error: OH_API_KEY environment variable not set", file=sys.stderr)
+    sys.exit(1)
+
+if not LLM_API_KEY:
+    print("Error: LLM_API_KEY environment variable not set", file=sys.stderr)
+    print("  Get your key from: https://app.all-hands.dev -> Profile -> API Keys")
     sys.exit(1)
 
 TASK = (
@@ -44,6 +52,7 @@ def cloud_api_request(method: str, path: str, **kwargs) -> requests.Response:
     url = f"{CLOUD_API_URL}{path}"
     headers = kwargs.pop("headers", {})
     headers["Authorization"] = f"Bearer {API_KEY}"
+    kwargs.setdefault("timeout", 30)
     response = requests.request(method, url, headers=headers, **kwargs)
     response.raise_for_status()
     return response
@@ -56,6 +65,7 @@ def agent_server_request(
     url = f"{agent_server_url}{path}"
     headers = kwargs.pop("headers", {})
     headers["X-Session-API-Key"] = session_key
+    kwargs.setdefault("timeout", 30)
     response = requests.request(method, url, headers=headers, **kwargs)
     response.raise_for_status()
     return response
@@ -69,43 +79,46 @@ def create_sandbox() -> tuple[str, str, str]:
     """
     print("\n=== Creating sandbox via Cloud API ===")
     
-    # Create a minimal conversation just to get a sandbox
-    response = cloud_api_request(
-        "POST",
-        "/api/v1/app-conversations",
-        json={
-            "github_token": None,
-            "selected_repository": None,
-        },
-    )
-    
-    data = response.json()
-    conv_id = data["id"]
-    print(f"  conversation: {conv_id}")
+    # Create sandbox directly
+    response = cloud_api_request("POST", "/api/v1/sandboxes")
+    sandbox = response.json()
+    sandbox_id = sandbox["id"]
+    print(f"  sandbox: {sandbox_id}")
     
     # Wait for sandbox to be ready
     print("  waiting for sandbox...")
-    for _ in range(60):
-        response = cloud_api_request("GET", f"/api/v1/app-conversations?ids={conv_id}")
-        conv = response.json()[0]
+    for i in range(90):
+        response = cloud_api_request(
+            "GET",
+            "/api/v1/sandboxes",
+            params={"id": sandbox_id}
+        )
+        results = response.json()
+        if not results or results[0] is None:
+            time.sleep(2)
+            continue
+        sandbox = results[0]
         
-        if conv.get("sandbox_status") == "RUNNING":
-            sandbox_id = conv["sandbox_id"]
-            session_key = conv["session_api_key"]
-            # Extract agent-server URL from conversation_url
-            conv_url = conv["conversation_url"]
-            agent_server_url = conv_url.rsplit("/api/conversations/", 1)[0]
+        status = sandbox.get("status", "")
+        if i % 5 == 0:
+            print(f"    status: {status}")
+        
+        if status == "RUNNING":
+            session_key = sandbox["session_api_key"]
+            # Extract agent-server URL from exposed_urls
+            agent_server_url = next(
+                (u["url"] for u in sandbox["exposed_urls"] if u["name"] == "AGENT_SERVER"),
+                None
+            )
+            if not agent_server_url:
+                raise RuntimeError("No AGENT_SERVER URL found in sandbox")
             
             print(f"  ✓ sandbox ready: {sandbox_id}")
             print(f"  agent-server: {agent_server_url}")
             
-            # Clean up the temp conversation
-            cloud_api_request("DELETE", f"/api/v1/app-conversations/{conv_id}")
-            print(f"  cleaned up temp conversation")
-            
             return sandbox_id, session_key, agent_server_url
         
-        time.sleep(1)
+        time.sleep(2)
     
     raise TimeoutError("Sandbox did not reach RUNNING status")
 
@@ -165,7 +178,25 @@ def create_conversation_with_custom_tools(
     """
     print(f"\n=== Creating conversation (method: {method}) ===")
     
+    # LLM configuration is required for agent-server API
+    # Must include both api_key AND base_url for the LiteLLM proxy
+    llm_config = {
+        "model": LLM_MODEL,
+        "api_key": LLM_API_KEY,
+        "base_url": LLM_BASE_URL,
+    }
+    
+    custom_tools = [
+        {"name": "terminal"},
+        {"name": "file_editor"},
+        {"name": "task_tracker"},
+    ]
+    
     payload = {
+        "agent": {
+            "llm": llm_config,
+        },
+        "workspace": {"working_dir": "/workspace"},
         "initial_message": {
             "content": [{"text": TASK}]
         }
@@ -173,16 +204,14 @@ def create_conversation_with_custom_tools(
     
     if method == "inline":
         # Pass tools directly in conversation creation
-        payload["agent"] = {
-            "tools": [
-                {"name": "terminal"},
-                {"name": "file_editor"},
-                {"name": "task_tracker"},
-            ]
-        }
+        payload["agent"]["tools"] = custom_tools
         print("  passing tools inline in conversation creation")
     else:
+        # Tools come from PATCH /api/settings configuration
         print("  using tools from agent-server settings")
+    
+    print(f"  model: {LLM_MODEL}")
+    print(f"  base_url: {LLM_BASE_URL}")
     
     response = agent_server_request(
         "POST",
@@ -203,14 +232,20 @@ def run_conversation(agent_server_url: str, session_key: str, conv_id: str) -> N
     """Run the conversation and wait for completion."""
     print("\n=== Running conversation ===")
     
-    # Start the conversation
-    agent_server_request(
-        "POST",
-        agent_server_url,
-        session_key,
-        f"/api/conversations/{conv_id}/run",
-    )
-    print("  conversation started")
+    # Try to start the conversation (may already be running due to initial_message)
+    try:
+        agent_server_request(
+            "POST",
+            agent_server_url,
+            session_key,
+            f"/api/conversations/{conv_id}/run",
+        )
+        print("  conversation started")
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 409:
+            print("  conversation already running")
+        else:
+            raise
     
     # Poll for completion
     print("  waiting for completion...")

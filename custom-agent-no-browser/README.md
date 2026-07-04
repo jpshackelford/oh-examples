@@ -26,7 +26,7 @@ The Cloud API (`POST /api/v1/app-conversations`) accepts an `agent_settings` par
 **Use `PATCH /api/settings` to set default tools for the entire agent-server instance:**
 
 ```python
-# Configure the agent-server
+# Configure the agent-server with custom tools
 requests.patch(
     f"{agent_server_url}/api/settings",
     headers={"X-Session-API-Key": session_key},
@@ -41,11 +41,19 @@ requests.patch(
     }
 )
 
-# Create conversation - it uses configured tools
+# Create conversation - tools come from settings, but LLM config is still required
 requests.post(
     f"{agent_server_url}/api/conversations",
     headers={"X-Session-API-Key": session_key},
     json={
+        "agent": {
+            "llm": {
+                "model": "litellm_proxy/claude-sonnet-4-5-20250929",
+                "api_key": os.getenv("LLM_API_KEY"),
+                "base_url": os.getenv("LLM_BASE_URL"),
+            }
+        },
+        "workspace": {"working_dir": "/workspace"},
         "initial_message": {"content": [{"text": "Hello!"}]}
     }
 )
@@ -58,6 +66,7 @@ requests.post(
 **Cons:**
 - Stateful - settings persist across conversations
 - Must remember to configure before first conversation
+- Still requires LLM config in each conversation request
 
 ### Method 2: Pass Tools Inline (Per-Conversation)
 
@@ -69,12 +78,18 @@ requests.post(
     headers={"X-Session-API-Key": session_key},
     json={
         "agent": {
+            "llm": {
+                "model": "litellm_proxy/claude-sonnet-4-5-20250929",
+                "api_key": os.getenv("LLM_API_KEY"),
+                "base_url": os.getenv("LLM_BASE_URL"),
+            },
             "tools": [
                 {"name": "terminal"},
                 {"name": "file_editor"},
                 {"name": "task_tracker"}
             ]
         },
+        "workspace": {"working_dir": "/workspace"},
         "initial_message": {"content": [{"text": "Hello!"}]}
     }
 )
@@ -94,8 +109,20 @@ requests.post(
 
 ```bash
 pip install requests
+
+# OpenHands Cloud API key (for sandbox management)
 export OH_API_KEY=your-cloud-api-key
+
+# OpenHands LLM API key (get from Profile -> API Keys)
+export LLM_API_KEY=your-llm-api-key
+
+# LiteLLM proxy URL (default works for OpenHands Cloud)
+export LLM_BASE_URL=https://llm-proxy.app.all-hands.dev/
 ```
+
+**Important:** When using the agent-server API directly, you must provide both
+`LLM_API_KEY` and `LLM_BASE_URL`. The agent-server needs to know where to send
+LLM requests and how to authenticate with the LiteLLM proxy.
 
 ### Run with Settings Method (Default)
 
