@@ -19,7 +19,7 @@ A collection of example code for working with the OpenHands API.
 | [command-whitelist](./command-whitelist/) | Only allow approved shell commands with PreToolUse hooks (whitelist approach for strict security) |
 | [workspace-isolation](./workspace-isolation/) | **Advanced:** Enforce directory boundaries with hooks - prevent agents from navigating/writing outside assigned workspace (based on jpshackelford/lxa) |
 | [custom-agent-no-browser](./custom-agent-no-browser/) | Configure agent-server with custom tools via direct API calls (demonstrates the correct pattern: session key + agent-server API, not Cloud API) |
-| [custom-agent-with-tool](./custom-agent-with-tool/) | **Educational example:** Attempts to upload and use custom server-side tool via APIs, demonstrates where it fails and why (process isolation), explains what alternatives actually work |
+| [custom-agent-with-tool](./custom-agent-with-tool/) | Add custom server-side tools to Cloud sandboxes by installing them as Python packages and using `tool_module_qualnames` for dynamic loading (working example with Rubber Duck Debugger) |
 
 ## API Versions
 
