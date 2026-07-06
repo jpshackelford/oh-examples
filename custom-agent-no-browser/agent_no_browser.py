@@ -475,7 +475,6 @@ def main():
             print("\n=== Keeping resources (--keep flag) ===")
             print(f"Conversation ID: {conv_id}")
             print(f"Sandbox ID: {sandbox_id}")
-            print(f"Session key: {session_key[:20]}...")
 
         if not passed:
             print("\n❌ Verification failed: see FAIL messages above.", file=sys.stderr)
