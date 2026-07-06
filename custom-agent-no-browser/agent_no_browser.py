@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
-"""Configure an agent-server with custom tools (no browser).
+"""Configure an agent with custom tools (no browser).
 
 This example demonstrates the correct pattern for customizing agent tools:
-1. Create a sandbox via Cloud API
-2. Get the session API key and agent-server URL
-3. Configure the agent-server with custom tools via PATCH /api/settings
-4. Create a conversation - it uses the configured tools
-5. Verify that browser tools are actually excluded
+1. Create a sandbox via the Cloud API
+2. Get the session API key and agent-server URL from the sandbox
+3. Create a conversation on the agent-server, passing the desired tools inline
+4. Run the conversation and verify the expected tools are present and the
+   browser tool is excluded
+5. Delete the conversation and sandbox
 
-Key insight: You cannot configure tools via the Cloud API's
-POST /api/v1/app-conversations endpoint. Instead, you must:
-- Call the agent-server API directly using the session key
-- Configure tools via PATCH /api/settings before creating conversations
-- OR pass tools directly when creating each conversation
+Key insight: There are two APIs. The Cloud API (app.all-hands.dev) manages the
+sandbox lifecycle, while the agent-server API (running inside the sandbox)
+controls agent configuration. Tools must be configured on the agent-server.
 
-This example shows both approaches.
+The reliable way to do this is to pass the tool list inline in the
+`agent` object when creating the conversation. That request creates the full
+agent spec (LLM + tools) in one shot, so the tools always take effect.
 """
 
 import argparse
-import json
 import os
 import sys
 import time
@@ -45,6 +45,11 @@ TASK = (
     "Create a Python script called 'hello.py' that prints 'Hello, Custom Agent!' "
     "Then show me the file content to confirm it was created."
 )
+
+# Tools the agent should have access to (browser is excluded by omission).
+# The agent-server always adds "finish" and "think" automatically, so the
+# resulting conversation exposes these three plus those two.
+EXPECTED_TOOLS = ["terminal", "file_editor", "task_tracker"]
 
 
 def cloud_api_request(method: str, path: str, **kwargs) -> requests.Response:
@@ -123,96 +128,42 @@ def create_sandbox() -> tuple[str, str, str]:
     raise TimeoutError("Sandbox did not reach RUNNING status")
 
 
-def configure_agent_tools(agent_server_url: str, session_key: str) -> None:
-    """Configure the agent-server with custom tools (no browser).
-    
-    This uses PATCH /api/settings to set the default tools for all future
-    conversations on this agent-server instance.
-    """
-    print("\n=== Configuring agent-server with custom tools ===")
-    
-    custom_tools = [
-        {"name": "terminal"},
-        {"name": "file_editor"},
-        {"name": "task_tracker"},
-    ]
-    
-    response = agent_server_request(
-        "PATCH",
-        agent_server_url,
-        session_key,
-        "/api/settings",
-        json={
-            "agent_settings_diff": {
-                "tools": custom_tools,
-            }
-        },
-    )
-    
-    data = response.json()
-    configured_tools = data["agent_settings"]["tools"]
-    
-    print(f"  ✓ configured {len(configured_tools)} tools:")
-    for tool in configured_tools:
-        print(f"    - {tool['name']}")
-    
-    # Verify browser is NOT in the list
-    tool_names = [t["name"] for t in configured_tools]
-    if "browser_tool_set" in tool_names:
-        print("  ⚠️  WARNING: browser_tool_set is still present!", file=sys.stderr)
-    else:
-        print("  ✓ browser_tool_set successfully excluded")
-
-
 def create_conversation_with_custom_tools(
-    agent_server_url: str, session_key: str, method: str = "settings"
+    agent_server_url: str, session_key: str
 ) -> str:
-    """Create a conversation with custom tools.
-    
-    Args:
-        method: Either "settings" (use server-configured tools) or 
-                "inline" (pass tools in conversation creation)
-    
+    """Create a conversation with custom tools passed inline.
+
+    The tool list is passed in the `agent` object so the full agent spec
+    (LLM + tools) is created in a single request and the tools always apply.
+
     Returns:
         conversation_id
     """
-    print(f"\n=== Creating conversation (method: {method}) ===")
-    
-    # LLM configuration is required for agent-server API
-    # Must include both api_key AND base_url for the LiteLLM proxy
+    print("\n=== Creating conversation ===")
+
+    # LLM configuration is required for the agent-server API.
+    # Must include both api_key AND base_url for the LiteLLM proxy.
     llm_config = {
         "model": LLM_MODEL,
         "api_key": LLM_API_KEY,
         "base_url": LLM_BASE_URL,
     }
-    
-    custom_tools = [
-        {"name": "terminal"},
-        {"name": "file_editor"},
-        {"name": "task_tracker"},
-    ]
-    
+
     payload = {
         "agent": {
             "llm": llm_config,
+            "tools": [{"name": name} for name in EXPECTED_TOOLS],
         },
         "workspace": {"working_dir": "/workspace"},
         "initial_message": {
             "content": [{"text": TASK}]
         }
     }
-    
-    if method == "inline":
-        # Pass tools directly in conversation creation
-        payload["agent"]["tools"] = custom_tools
-        print("  passing tools inline in conversation creation")
-    else:
-        # Tools come from PATCH /api/settings configuration
-        print("  using tools from agent-server settings")
-    
+
     print(f"  model: {LLM_MODEL}")
     print(f"  base_url: {LLM_BASE_URL}")
-    
+    print(f"  tools: {', '.join(EXPECTED_TOOLS)}")
+
     response = agent_server_request(
         "POST",
         agent_server_url,
@@ -220,11 +171,11 @@ def create_conversation_with_custom_tools(
         "/api/conversations",
         json=payload,
     )
-    
+
     data = response.json()
     conv_id = data["id"]
     print(f"  ✓ conversation created: {conv_id}")
-    
+
     return conv_id
 
 
@@ -383,63 +334,83 @@ def check_browser_tools(tools: list[dict]) -> bool:
     return False
 
 
-def verify_tools(agent_server_url: str, session_key: str, conv_id: str) -> None:
-    """Verify which tools were actually available to the agent.
-    
-    This inspects the conversation events to see:
-    1. Which tools were available (from SystemPromptEvent)
-    2. Which tools were actually used (from ActionEvents)
-    3. Whether browser tools are present
+def verify_tools(agent_server_url: str, session_key: str, conv_id: str) -> bool:
+    """Verify the agent got the intended tools and no browser tools.
+
+    Checks two things:
+    1. The expected tools (EXPECTED_TOOLS) are all present in the
+       SystemPromptEvent, and no browser tool is present.
+    2. No browser tool was actually used in any ActionEvent.
+
+    Returns True only if every check passes.
     """
     print("\n=== Verifying tools ===")
-    
-    # Get available tools from SystemPromptEvent
+    ok = True
+
+    # Get available tools from the SystemPromptEvent.
     available_tools = get_available_tools(agent_server_url, session_key, conv_id)
-    
+
     if available_tools:
         print("\n  Available tools:")
         display_tools(available_tools)
-        
-        # Check for browser tools in available tools
-        has_browser = check_browser_tools(available_tools)
-        if has_browser:
-            print("  ❌ FAIL: Browser tools are in the available tools list!", file=sys.stderr)
+
+        available_titles = {t.get("title", "") for t in available_tools}
+
+        # a) All expected tools must be present.
+        missing = [name for name in EXPECTED_TOOLS if name not in available_titles]
+        if missing:
+            ok = False
+            print(
+                f"  ❌ FAIL: expected tools missing from conversation: {missing}",
+                file=sys.stderr,
+            )
         else:
-            print("  ✅ PASS: No browser tools in available tools list")
+            print(f"  ✅ PASS: all expected tools present: {EXPECTED_TOOLS}")
+
+        # b) No browser tools should be present.
+        if check_browser_tools(available_tools):
+            ok = False
+            print("  ❌ FAIL: browser tools are in the available tools list!", file=sys.stderr)
+        else:
+            print("  ✅ PASS: no browser tools in available tools list")
     else:
-        print("  ⚠️  Could not retrieve available tools (no SystemPromptEvent found)")
-    
-    # Get tools actually used from ActionEvents
+        ok = False
+        print(
+            "  ❌ FAIL: could not retrieve available tools (no SystemPromptEvent found)",
+            file=sys.stderr,
+        )
+
+    # Get tools actually used from ActionEvents.
     response = agent_server_request(
         "GET",
         agent_server_url,
         session_key,
         f"/api/conversations/{conv_id}/events/search?limit=100",
     )
-    
+
     data = response.json()
     events = data.get("items", [])
-    
-    # Extract unique tool names from ActionEvents
+
     tools_used = set()
     for event in events:
         if event.get("kind") == "ActionEvent" and "tool_name" in event:
             tools_used.add(event["tool_name"])
-    
+
     print(f"\n  Tools actually used: {sorted(tools_used) if tools_used else '(none)'}")
-    
-    if "browser" in tools_used or any("browser" in t.lower() for t in tools_used):
-        print("  ❌ FAIL: Browser tool was used!", file=sys.stderr)
-        return False
+
+    if any("browser" in t.lower() for t in tools_used):
+        ok = False
+        print("  ❌ FAIL: browser tool was used!", file=sys.stderr)
     else:
-        print("  ✅ PASS: No browser tools were used")
-        return True
+        print("  ✅ PASS: no browser tools were used")
+
+    return ok
 
 
 def cleanup(agent_server_url: str, session_key: str, conv_id: str, sandbox_id: str) -> None:
-    """Clean up conversation and sandbox."""
+    """Delete the conversation and sandbox."""
     print("\n=== Cleanup ===")
-    
+
     try:
         agent_server_request(
             "DELETE",
@@ -450,9 +421,15 @@ def cleanup(agent_server_url: str, session_key: str, conv_id: str, sandbox_id: s
         print(f"  ✓ deleted conversation {conv_id}")
     except Exception as e:
         print(f"  ⚠️  failed to delete conversation: {e}", file=sys.stderr)
-    
+
     try:
-        cloud_api_request("DELETE", f"/api/v1/sandboxes/{sandbox_id}")
+        # DELETE /api/v1/sandboxes/{id} requires sandbox_id as BOTH a path
+        # segment and a query parameter, otherwise it returns HTTP 422.
+        cloud_api_request(
+            "DELETE",
+            f"/api/v1/sandboxes/{sandbox_id}",
+            params={"sandbox_id": sandbox_id},
+        )
         print(f"  ✓ deleted sandbox {sandbox_id}")
     except Exception as e:
         print(f"  ⚠️  failed to delete sandbox: {e}", file=sys.stderr)
@@ -461,43 +438,37 @@ def cleanup(agent_server_url: str, session_key: str, conv_id: str, sandbox_id: s
 def main():
     parser = argparse.ArgumentParser(description="Configure agent with custom tools")
     parser.add_argument(
-        "--method",
-        choices=["settings", "inline"],
-        default="settings",
-        help="How to specify tools: 'settings' (via PATCH /api/settings) or 'inline' (in conversation creation)",
-    )
-    parser.add_argument(
         "--keep",
         action="store_true",
         help="Keep the conversation and sandbox after completion (for inspection)",
     )
     args = parser.parse_args()
-    
+
+    sandbox_id = None
+    session_key = None
+    agent_server_url = None
+    conv_id = None
     try:
         # 1. Create sandbox
         sandbox_id, session_key, agent_server_url = create_sandbox()
-        
-        # 2. Configure tools (only if using settings method)
-        if args.method == "settings":
-            configure_agent_tools(agent_server_url, session_key)
-        
-        # 3. Create conversation
+
+        # 2. Create conversation with the desired tools passed inline
         conv_id = create_conversation_with_custom_tools(
-            agent_server_url, session_key, method=args.method
+            agent_server_url, session_key
         )
-        
-        # 4. Run conversation
+
+        # 3. Run conversation
         run_conversation(agent_server_url, session_key, conv_id)
-        
-        # 5. Verify tools
-        verify_tools(agent_server_url, session_key, conv_id)
-        
-        # 6. Show results
+
+        # 4. Verify tools
+        passed = verify_tools(agent_server_url, session_key, conv_id)
+
+        # 5. Show results
         print("\n=== Results ===")
         print(f"View conversation: {CLOUD_API_URL}/conversations/{conv_id}")
         print(f"Agent-server: {agent_server_url}")
-        
-        # 7. Cleanup (unless --keep)
+
+        # 6. Cleanup (unless --keep)
         if not args.keep:
             cleanup(agent_server_url, session_key, conv_id, sandbox_id)
         else:
@@ -505,11 +476,22 @@ def main():
             print(f"Conversation ID: {conv_id}")
             print(f"Sandbox ID: {sandbox_id}")
             print(f"Session key: {session_key[:20]}...")
-    
+
+        if not passed:
+            print("\n❌ Verification failed: see FAIL messages above.", file=sys.stderr)
+            sys.exit(1)
+        print("\n✅ Success: agent configured with the expected tools (no browser).")
+
     except Exception as e:
         print(f"\n❌ Error: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc()
+        # Best-effort cleanup so we don't leak a sandbox on failure.
+        if sandbox_id and not args.keep:
+            try:
+                cleanup(agent_server_url, session_key, conv_id, sandbox_id)
+            except Exception:
+                pass
         sys.exit(1)
 
 
