@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Custom tool definition - Rubber Duck Debugger.
 
-This file contains a complete custom tool implementation using the OpenHands SDK.
-We'll attempt to upload this to agent-server and use it, demonstrating the
-architectural limitations of the current system.
+A complete custom tool implemented with the OpenHands SDK. `working_example.py`
+deploys this file into a Cloud sandbox as an importable module so the agent-server
+can load it via `tool_module_qualnames`. Importing this module registers the tool
+(see the `register_tool` call at the bottom).
 """
 
 from typing import ClassVar
