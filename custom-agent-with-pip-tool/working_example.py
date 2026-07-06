@@ -31,6 +31,7 @@ import time
 
 import requests
 
+
 BASE_URL = os.getenv("OPENHANDS_CLOUD_API_URL", "https://app.all-hands.dev")
 WORKING_DIR = "/workspace"
 
@@ -139,8 +140,8 @@ def deploy_tool_package(agent_server, session_key):
     # Install into /workspace so the agent-server can import it. We skip dependencies
     # that are already bundled in the frozen server (openhands-sdk, pydantic, rich) by
     # installing with --no-deps, then installing only the non-bundled deps explicitly.
-    # For oh-markdown-tool[openhands], the bundled deps are openhands-sdk, pydantic, rich;
-    # the non-bundled are mdformat and pymarkdownlnt.
+    # For oh-markdown-tool[openhands], the bundled deps are openhands-sdk, pydantic,
+    # rich; the non-bundled are mdformat and pymarkdownlnt.
     install_cmd = (
         f"pip install --target {WORKING_DIR} --no-deps {PACKAGE_SPEC} && "
         f"pip install --target {WORKING_DIR} mdformat pymarkdownlnt"
@@ -155,7 +156,10 @@ def deploy_tool_package(agent_server, session_key):
     resp.raise_for_status()
     result = resp.json()
     if result.get("exit_code", 1) != 0:
-        log(f"pip install failed:\n{result.get('stderr', result.get('stdout', ''))}", "[error]")
+        log(
+            f"pip install failed:\n{result.get('stderr', result.get('stdout', ''))}",
+            "[error]",
+        )
         sys.exit(1)
 
     log(f"  installed {PACKAGE_SPEC} into {WORKING_DIR}")
@@ -214,7 +218,8 @@ def create_conversation(agent_server, session_key, llm_key):
 
 
 def run_and_verify(agent_server, session_key, conv_id):
-    """Run the conversation and verify the tool registered, was used, and changed the file."""
+    """Run the conversation and verify the tool registered, was used,
+    and changed the file."""
     log("Running conversation...")
     headers = {"X-Session-API-Key": session_key}
 
@@ -225,19 +230,29 @@ def run_and_verify(agent_server, session_key, conv_id):
     status = "unknown"
     for _ in range(150):
         time.sleep(2)
-        status = requests.get(
-            f"{agent_server}/api/conversations/{conv_id}", headers=headers, timeout=30
-        ).json().get("execution_status", "unknown")
+        status = (
+            requests.get(
+                f"{agent_server}/api/conversations/{conv_id}",
+                headers=headers,
+                timeout=30,
+            )
+            .json()
+            .get("execution_status", "unknown")
+        )
         if status in ("finished", "error"):
             break
     log(f"  execution_status: {status}")
 
-    items = requests.get(
-        f"{agent_server}/api/conversations/{conv_id}/events/search",
-        headers=headers,
-        params={"limit": 100},
-        timeout=30,
-    ).json().get("items", [])
+    items = (
+        requests.get(
+            f"{agent_server}/api/conversations/{conv_id}/events/search",
+            headers=headers,
+            params={"limit": 100},
+            timeout=30,
+        )
+        .json()
+        .get("items", [])
+    )
 
     system_events = [e for e in items if e.get("kind") == "SystemPromptEvent"]
     registered_titles = (
@@ -247,7 +262,8 @@ def run_and_verify(agent_server, session_key, conv_id):
     )
     # Check if our tool is registered (by title, since name field is not populated)
     tool_registered = any(
-        TOOL_NAME in (t.get("name") or "") or "Markdown Document" in (t.get("title") or "")
+        TOOL_NAME in (t.get("name") or "")
+        or "Markdown Document" in (t.get("title") or "")
         for t in (system_events[0].get("tools", []) if system_events else [])
     )
     used = sorted(
@@ -267,7 +283,9 @@ def run_and_verify(agent_server, session_key, conv_id):
     )
     file_resp.raise_for_status()
     final_content = file_resp.json().get("stdout") or ""
-    has_toc = "Table of Contents" in final_content or "Table Of Contents" in final_content
+    has_toc = (
+        "Table of Contents" in final_content or "Table Of Contents" in final_content
+    )
     has_renumbered = "## 1." in final_content and "## 2." in final_content
 
     log("")
@@ -277,10 +295,10 @@ def run_and_verify(agent_server, session_key, conv_id):
 
     ok = True
     if tool_registered:
-        log(f"  PASS: tool 'markdown_document' is registered")
+        log("  PASS: tool 'markdown_document' is registered")
     else:
         ok = False
-        log(f"  FAIL: tool 'markdown_document' is NOT registered", "[error]")
+        log("  FAIL: tool 'markdown_document' is NOT registered", "[error]")
 
     if TOOL_NAME in used:
         log(f"  PASS: tool '{TOOL_NAME}' was invoked by the agent")
@@ -340,9 +358,7 @@ def main():
             sandbox_info["agent_server"], sandbox_info["session_key"], conv_id
         )
 
-        log(
-            f"View conversation: {BASE_URL}/conversations/{conv_id}"
-        )
+        log(f"View conversation: {BASE_URL}/conversations/{conv_id}")
 
         if ok:
             log("SUCCESS: the tool was loaded from the pip package and used.")
@@ -357,8 +373,9 @@ def main():
             log(f"  agent-server: {sandbox_info['agent_server']}")
             log("  Delete later with:")
             log(
-                f"    curl -X DELETE '{BASE_URL}/api/v1/sandboxes/{sandbox_info['id']}?"
-                f"sandbox_id={sandbox_info['id']}' -H \"Authorization: Bearer $OH_API_KEY\""
+                f"    curl -X DELETE '{BASE_URL}/api/v1/sandboxes/"
+                f"{sandbox_info['id']}?sandbox_id={sandbox_info['id']}' "
+                f'-H "Authorization: Bearer $OH_API_KEY"'
             )
         else:
             cleanup(sandbox_info)

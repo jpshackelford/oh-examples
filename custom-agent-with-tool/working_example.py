@@ -29,6 +29,7 @@ import time
 
 import requests
 
+
 BASE_URL = os.getenv("OPENHANDS_CLOUD_API_URL", "https://app.all-hands.dev")
 WORKING_DIR = "/workspace"
 # The custom tool is deployed as a package in the working directory.
@@ -75,10 +76,16 @@ def check_env():
     api_key = os.getenv("OH_API_KEY")
     llm_key = os.getenv("LLM_API_KEY")
     if not api_key:
-        log("ERROR: OH_API_KEY not set (export OH_API_KEY=your-cloud-api-key)", "[error]")
+        log(
+            "ERROR: OH_API_KEY not set (export OH_API_KEY=your-cloud-api-key)",
+            "[error]",
+        )
         sys.exit(1)
     if not llm_key:
-        log("ERROR: LLM_API_KEY not set (export LLM_API_KEY=your-llm-api-key)", "[error]")
+        log(
+            "ERROR: LLM_API_KEY not set (export LLM_API_KEY=your-llm-api-key)",
+            "[error]",
+        )
         sys.exit(1)
     return api_key, llm_key
 
@@ -185,7 +192,9 @@ def create_conversation_with_tool(agent_server, session_key, llm_key):
         f"{agent_server}/api/conversations", headers=headers, json=payload, timeout=30
     )
     if resp.status_code not in (200, 201):
-        raise RuntimeError(f"Failed to create conversation: {resp.status_code} {resp.text}")
+        raise RuntimeError(
+            f"Failed to create conversation: {resp.status_code} {resp.text}"
+        )
 
     conv_id = resp.json()["id"]
     log(f"  conversation created: {conv_id}")
@@ -204,19 +213,29 @@ def run_and_verify(agent_server, session_key, conv_id):
     status = "unknown"
     for _ in range(150):
         time.sleep(2)
-        status = requests.get(
-            f"{agent_server}/api/conversations/{conv_id}", headers=headers, timeout=30
-        ).json().get("execution_status", "unknown")
+        status = (
+            requests.get(
+                f"{agent_server}/api/conversations/{conv_id}",
+                headers=headers,
+                timeout=30,
+            )
+            .json()
+            .get("execution_status", "unknown")
+        )
         if status in ("finished", "error"):
             break
     log(f"  execution_status: {status}")
 
-    items = requests.get(
-        f"{agent_server}/api/conversations/{conv_id}/events/search",
-        headers=headers,
-        params={"limit": 100},
-        timeout=30,
-    ).json().get("items", [])
+    items = (
+        requests.get(
+            f"{agent_server}/api/conversations/{conv_id}/events/search",
+            headers=headers,
+            params={"limit": 100},
+            timeout=30,
+        )
+        .json()
+        .get("items", [])
+    )
 
     system_events = [e for e in items if e.get("kind") == "SystemPromptEvent"]
     registered = (
@@ -300,7 +319,10 @@ def cleanup(sandbox_info):
     if resp.ok:
         log("  sandbox deleted")
     else:
-        log(f"  WARNING: failed to delete sandbox: {resp.status_code} {resp.text}", "[warn]")
+        log(
+            f"  WARNING: failed to delete sandbox: {resp.status_code} {resp.text}",
+            "[warn]",
+        )
 
 
 def main():
@@ -354,7 +376,7 @@ def main():
             log(
                 f"    curl -X DELETE '{BASE_URL}/api/v1/sandboxes/"
                 f"{sandbox_info['sandbox_id']}?sandbox_id={sandbox_info['sandbox_id']}'"
-                " -H \"Authorization: Bearer $OH_API_KEY\""
+                ' -H "Authorization: Bearer $OH_API_KEY"'
             )
 
 

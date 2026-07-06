@@ -16,10 +16,9 @@ actually called this tool - which makes the end-to-end demonstration unfalsifiab
 import hashlib
 from typing import ClassVar
 
-from pydantic import Field
-
 from openhands.sdk import Action, Observation
 from openhands.sdk.tool import ToolDefinition, ToolExecutor, register_tool
+from pydantic import Field
 
 
 # Absurd, official-sounding taxonomy. Chosen deterministically from the bug's hash,
@@ -40,11 +39,15 @@ CLASSIFICATIONS = [
 ]
 
 REMEDIATION_RITUALS = [
-    "Rotate your chair 90 degrees widdershins, whisper the variable's name, and re-read line 1.",
-    "Explain the code to a houseplant. If no plant is available, a stapler is legally sufficient.",
+    "Rotate your chair 90 degrees widdershins, whisper the variable's name, "
+    "and re-read line 1.",
+    "Explain the code to a houseplant. If no plant is available, a stapler "
+    "is legally sufficient.",
     "Add a print statement. Remove it. Add it back. Achieve enlightenment.",
-    "Rename the variable to temp_final_v2_REAL and promise yourself you'll fix it later.",
-    "Delete the code, walk away, and reimplement it identically but with more confidence.",
+    "Rename the variable to temp_final_v2_REAL and promise yourself you'll "
+    "fix it later.",
+    "Delete the code, walk away, and reimplement it identically but with "
+    "more confidence.",
     "Blame the compiler. Apologize to the compiler. Re-examine your own logic.",
     "Summon a second engineer; the bug will vanish the instant they arrive.",
     "Turn it off and on again, then look genuinely surprised when that works.",
@@ -70,7 +73,7 @@ class BugFiling(Observation):
 class BugRegistryExecutor(ToolExecutor[BugReport, BugFiling]):
     """Registers a bug and issues a deterministic, hash-derived filing."""
 
-    def __call__(self, action: BugReport, conversation=None) -> BugFiling:
+    def __call__(self, action: BugReport, _conversation=None) -> BugFiling:
         digest = hashlib.sha256(
             (action.problem + "\n" + (action.code or "")).encode("utf-8")
         ).hexdigest()
@@ -89,7 +92,8 @@ class BugRegistryExecutor(ToolExecutor[BugReport, BugFiling]):
                 "",
                 f"  Case ID:        {case_id}",
                 f"  Classification: {classification}",
-                f"  Severity:       {'*' * goblins}{'.' * (5 - goblins)}  ({goblins}/5 goblins)",
+                f"  Severity:       {'*' * goblins}{'.' * (5 - goblins)}  "
+                f"({goblins}/5 goblins)",
                 f"  Filed under:    Regulation section {reg_num}.{reg_sub}, "
                 "'Undefined Behavior & Adjacent Shenanigans'",
                 "",
@@ -113,7 +117,7 @@ class BugRegistryTool(ToolDefinition[BugReport, BugFiling]):
     name: ClassVar[str] = "bug_registry"
 
     @classmethod
-    def create(cls, conv_state=None) -> list["ToolDefinition"]:
+    def create(cls, _conv_state=None) -> list["ToolDefinition"]:
         return [
             cls(
                 description=(
@@ -136,6 +140,8 @@ register_tool("bug_registry", BugRegistryTool)
 
 if __name__ == "__main__":
     obs = BugRegistryExecutor()(
-        BugReport(problem="ZeroDivisionError on single-element list", code="len(nums)-1")
+        BugReport(
+            problem="ZeroDivisionError on single-element list", code="len(nums)-1"
+        )
     )
     print(obs.case_id, "|", obs.classification)

@@ -25,6 +25,7 @@ import time
 
 import requests
 
+
 # Configuration
 CLOUD_API_URL = os.getenv("OPENHANDS_CLOUD_API_URL", "https://app.all-hands.dev")
 API_KEY = os.getenv("OH_API_KEY")
@@ -78,53 +79,55 @@ def agent_server_request(
 
 def create_sandbox() -> tuple[str, str, str]:
     """Create a sandbox via Cloud API.
-    
+
     Returns:
         (sandbox_id, session_key, agent_server_url)
     """
     print("\n=== Creating sandbox via Cloud API ===")
-    
+
     # Create sandbox directly
     response = cloud_api_request("POST", "/api/v1/sandboxes")
     sandbox = response.json()
     sandbox_id = sandbox["id"]
     print(f"  sandbox: {sandbox_id}")
-    
+
     # Wait for sandbox to be ready
     print("  waiting for sandbox...")
     for i in range(90):
         response = cloud_api_request(
-            "GET",
-            "/api/v1/sandboxes",
-            params={"id": sandbox_id}
+            "GET", "/api/v1/sandboxes", params={"id": sandbox_id}
         )
         results = response.json()
         if not results or results[0] is None:
             time.sleep(2)
             continue
         sandbox = results[0]
-        
+
         status = sandbox.get("status", "")
         if i % 5 == 0:
             print(f"    status: {status}")
-        
+
         if status == "RUNNING":
             session_key = sandbox["session_api_key"]
             # Extract agent-server URL from exposed_urls
             agent_server_url = next(
-                (u["url"] for u in sandbox["exposed_urls"] if u["name"] == "AGENT_SERVER"),
-                None
+                (
+                    u["url"]
+                    for u in sandbox["exposed_urls"]
+                    if u["name"] == "AGENT_SERVER"
+                ),
+                None,
             )
             if not agent_server_url:
                 raise RuntimeError("No AGENT_SERVER URL found in sandbox")
-            
+
             print(f"  ✓ sandbox ready: {sandbox_id}")
             print(f"  agent-server: {agent_server_url}")
-            
+
             return sandbox_id, session_key, agent_server_url
-        
+
         time.sleep(2)
-    
+
     raise TimeoutError("Sandbox did not reach RUNNING status")
 
 
@@ -155,9 +158,7 @@ def create_conversation_with_custom_tools(
             "tools": [{"name": name} for name in EXPECTED_TOOLS],
         },
         "workspace": {"working_dir": "/workspace"},
-        "initial_message": {
-            "content": [{"text": TASK}]
-        }
+        "initial_message": {"content": [{"text": TASK}]},
     }
 
     print(f"  model: {LLM_MODEL}")
@@ -182,7 +183,7 @@ def create_conversation_with_custom_tools(
 def run_conversation(agent_server_url: str, session_key: str, conv_id: str) -> None:
     """Run the conversation and wait for completion."""
     print("\n=== Running conversation ===")
-    
+
     # Try to start the conversation (may already be running due to initial_message)
     try:
         agent_server_request(
@@ -197,7 +198,7 @@ def run_conversation(agent_server_url: str, session_key: str, conv_id: str) -> N
             print("  conversation already running")
         else:
             raise
-    
+
     # Poll for completion
     print("  waiting for completion...")
     for i in range(180):  # 3 minute timeout
@@ -209,28 +210,30 @@ def run_conversation(agent_server_url: str, session_key: str, conv_id: str) -> N
         )
         data = response.json()
         status = data.get("execution_status", "unknown")
-        
+
         if i % 5 == 0:  # Print status every 5 seconds
             print(f"    execution_status: {status}")
-        
+
         if status == "finished":
             print("  ✓ conversation completed successfully")
             return
         elif status == "error":
             print("  ✗ conversation failed", file=sys.stderr)
             return
-        
+
         time.sleep(1)
-    
+
     print("  ⚠️  timeout waiting for completion", file=sys.stderr)
 
 
-def get_available_tools(agent_server_url: str, session_key: str, conv_id: str) -> list[dict]:
+def get_available_tools(
+    agent_server_url: str, session_key: str, conv_id: str
+) -> list[dict]:
     """Get the list of tools that were available to the agent.
-    
+
     This retrieves the SystemPromptEvent which contains the actual tools array
     that was configured for the conversation.
-    
+
     Returns:
         List of tool definitions, each with 'title', 'kind', 'description', etc.
     """
@@ -240,13 +243,13 @@ def get_available_tools(agent_server_url: str, session_key: str, conv_id: str) -
         session_key,
         f"/api/conversations/{conv_id}/events/search?kind__eq=SystemPromptEvent&limit=1",
     )
-    
+
     data = response.json()
     events = data.get("items", [])
-    
+
     if not events:
         return []
-    
+
     # SystemPromptEvent contains the tools array
     system_event = events[0]
     return system_event.get("tools", [])
@@ -254,9 +257,9 @@ def get_available_tools(agent_server_url: str, session_key: str, conv_id: str) -
 
 def display_tools(tools: list[dict], show_descriptions: bool = False) -> None:
     """Display tools in a concise, grouped format.
-    
+
     Groups tools by category (e.g., all browser tools together) for readability.
-    
+
     Args:
         tools: List of tool definitions from SystemPromptEvent
         show_descriptions: If True, show first line of each tool's description
@@ -264,12 +267,12 @@ def display_tools(tools: list[dict], show_descriptions: bool = False) -> None:
     if not tools:
         print("  (no tools found)")
         return
-    
+
     # Group tools by category based on title prefix
     categorized = {}
     for tool in tools:
         title = tool.get("title", "unknown")
-        
+
         # Categorize based on title prefix
         if title.startswith("browser_"):
             category = "browser"
@@ -280,29 +283,29 @@ def display_tools(tools: list[dict], show_descriptions: bool = False) -> None:
             category = parts[1] if len(parts) > 1 else "default"
         else:
             category = "core"
-        
+
         if category not in categorized:
             categorized[category] = []
         categorized[category].append(tool)
-    
+
     # Display tools by category
     print(f"  total tools: {len(tools)}")
     print()
-    
+
     for category in sorted(categorized.keys()):
         tools_in_cat = categorized[category]
-        
+
         if category == "browser":
             print(f"  📱 Browser tools ({len(tools_in_cat)}):")
         elif category == "core":
             print(f"  🔧 Core tools ({len(tools_in_cat)}):")
         else:
             print(f"  🔌 {category.title()} tools ({len(tools_in_cat)}):")
-        
+
         for tool in tools_in_cat:
             title = tool.get("title", "unknown")
             kind = tool.get("kind", "unknown")
-            
+
             if show_descriptions:
                 desc = tool.get("description", "")
                 # Get first line of description
@@ -316,21 +319,21 @@ def display_tools(tools: list[dict], show_descriptions: bool = False) -> None:
 
 def check_browser_tools(tools: list[dict]) -> bool:
     """Check if browser tools are present in the tools list.
-    
+
     Args:
         tools: List of tool definitions
-        
+
     Returns:
         True if browser tools are found, False otherwise
     """
     for tool in tools:
         title = tool.get("title", "")
         kind = tool.get("kind", "")
-        
+
         # Check if this is a browser tool
         if "browser" in title.lower() or "browser" in kind.lower():
             return True
-    
+
     return False
 
 
@@ -370,13 +373,17 @@ def verify_tools(agent_server_url: str, session_key: str, conv_id: str) -> bool:
         # b) No browser tools should be present.
         if check_browser_tools(available_tools):
             ok = False
-            print("  ❌ FAIL: browser tools are in the available tools list!", file=sys.stderr)
+            print(
+                "  ❌ FAIL: browser tools are in the available tools list!",
+                file=sys.stderr,
+            )
         else:
             print("  ✅ PASS: no browser tools in available tools list")
     else:
         ok = False
         print(
-            "  ❌ FAIL: could not retrieve available tools (no SystemPromptEvent found)",
+            "  ❌ FAIL: could not retrieve available tools "
+            "(no SystemPromptEvent found)",
             file=sys.stderr,
         )
 
@@ -407,7 +414,9 @@ def verify_tools(agent_server_url: str, session_key: str, conv_id: str) -> bool:
     return ok
 
 
-def cleanup(agent_server_url: str, session_key: str, conv_id: str, sandbox_id: str) -> None:
+def cleanup(
+    agent_server_url: str, session_key: str, conv_id: str, sandbox_id: str
+) -> None:
     """Delete the conversation and sandbox."""
     print("\n=== Cleanup ===")
 
@@ -453,9 +462,7 @@ def main():
         sandbox_id, session_key, agent_server_url = create_sandbox()
 
         # 2. Create conversation with the desired tools passed inline
-        conv_id = create_conversation_with_custom_tools(
-            agent_server_url, session_key
-        )
+        conv_id = create_conversation_with_custom_tools(agent_server_url, session_key)
 
         # 3. Run conversation
         run_conversation(agent_server_url, session_key, conv_id)
@@ -484,6 +491,7 @@ def main():
     except Exception as e:
         print(f"\n❌ Error: {e}", file=sys.stderr)
         import traceback
+
         traceback.print_exc()
         # Best-effort cleanup so we don't leak a sandbox on failure.
         if sandbox_id and not args.keep:
