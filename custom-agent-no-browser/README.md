@@ -4,8 +4,8 @@ This example demonstrates **the correct pattern** for customizing agent tools us
 
 ## What This Example Shows
 
-- ✅ How to configure an agent with a custom set of tools
-- ✅ Verification that the intended tools are present and the browser is excluded
+- ✅ How to configure which tools the agent can access, (e.g. use standard tools, but exclude browser tools)
+- ✅ How to verify that the intended tools are present and excluded ones are absent
 - ✅ The complete workflow from sandbox creation to cleanup
 
 ## The Key Insight: Two APIs
