@@ -4,20 +4,26 @@ Add a **completely custom, server-side tool** to an OpenHands Cloud agent — wi
 forking or rebuilding the agent-server. The agent-server loads your tool at
 conversation-creation time via the `tool_module_qualnames` mechanism.
 
-The example ships a small demo tool (the Rubber Duck Debugger) and proves, end to
-end, that the agent **registers** and **uses** it.
+The example ships a small demo tool (the **Bureau of Bug Registration**) and proves,
+end to end, that the agent **registers**, **uses**, and **reports output from** it.
+
+Why this tool? It does something an LLM would never produce on its own and **could not
+fake**: it assigns each bug a deterministic, hash-derived **Case ID** (e.g. `BUG-59C20D`)
+plus a gloriously bureaucratic classification. Because the Case ID is a SHA-256 slice
+of the bug report, the only way the agent's answer can contain the correct ID is if
+it actually called the tool — making the demonstration unfalsifiable.
 
 ## The core idea: declare + locate
 
 Creating a conversation with a custom tool is a two-part contract:
 
 - `agent.tools` — **which** tools to activate, by name:
-  `[{"name": "terminal"}, {"name": "file_editor"}, {"name": "rubber_duck"}]`
+  `[{"name": "terminal"}, {"name": "file_editor"}, {"name": "bug_registry"}]`
 - `tool_module_qualnames` — **where** a tool comes from, as an importable module:
-  `{"rubber_duck": "rubber_duck.tool"}`
+  `{"bug_registry": "bug_registry.tool"}`
 
 On conversation creation the agent-server imports each mapped module. Importing has
-a **side effect**: the module's `register_tool("rubber_duck", RubberDuckTool)` call
+a **side effect**: the module's `register_tool("bug_registry", BugRegistryTool)` call
 runs and registers the tool. If the name is requested but nothing registered it,
 the server returns `ToolDefinition '<name>' is not registered`.
 
@@ -50,10 +56,12 @@ Expected output:
 
 ```
 [demo] === Verification ===
-[demo]   registered tools: ['terminal', 'file_editor', 'rubber_duck', 'finish', 'think']
-[demo]   tools used: ['rubber_duck']
-[demo]   PASS: custom tool 'rubber_duck' is registered
-[demo]   PASS: custom tool 'rubber_duck' was used by the agent
+[demo]   registered tools: ['terminal', 'file_editor', 'bug_registry', 'finish', 'think']
+[demo]   tools used: ['bug_registry']
+[demo]   Case ID issued by tool: BUG-59C20D
+[demo]   PASS: custom tool 'bug_registry' is registered
+[demo]   PASS: custom tool 'bug_registry' was used by the agent
+[demo]   PASS: agent reported the tool's Case ID (BUG-59C20D) in its answer
 [demo] SUCCESS: the custom tool was loaded and used in OpenHands Cloud.
 ```
 
@@ -62,7 +70,7 @@ Expected output:
 1. **Create a sandbox** (`POST /api/v1/sandboxes`) and wait for `RUNNING`. Read the
    `AGENT_SERVER` URL and the `session_api_key` from the sandbox record.
 2. **Deploy the tool** as an importable package in the conversation's working
-   directory, `/workspace/rubber_duck/`, using the agent-server file API
+   directory, `/workspace/bug_registry/`, using the agent-server file API
    (`POST /api/file/upload?path=...`). Two files are uploaded: `__init__.py` and
    `tool.py` (the contents of `custom_tool_definition.py`).
 3. **Create a conversation** (`POST /api/conversations`) that lists the tool in
@@ -95,22 +103,27 @@ of tools the agent was given. Both examples read it the same way:
 ```python
 system_events = [e for e in items if e.get("kind") == "SystemPromptEvent"]
 registered = [t.get("title") for t in system_events[0].get("tools", [])]
-assert "rubber_duck" in registered          # registered / available
-assert "rubber_duck" in tools_used          # actually invoked (from ActionEvents)
+assert "bug_registry" in registered          # registered / available
+assert "bug_registry" in tools_used          # actually invoked (from ActionEvents)
 ```
+
+The verification also extracts the **Case ID** from the tool's observation (the ground
+truth) and confirms that exact ID appears in the agent's final answer — proving the
+tool's output shaped the response and the agent didn't fabricate it.
 
 ## The example tool
 
-`custom_tool_definition.py` defines a `rubber_duck` tool with the OpenHands SDK: a
+`custom_tool_definition.py` defines a `bug_registry` tool with the OpenHands SDK: a
 `ToolDefinition` + typed `Action`/`Observation` + an `Executor`. It takes a `problem`
-(and optional `code`) and returns rubber-duck debugging advice. Importing the module
-registers the tool.
+(and optional `code`) and deterministically derives a **hash-based Case ID** plus an
+absurd bureaucratic classification ("Haunted Copy-Paste Residue", "Gaslighting Boolean",
+etc.) from the SHA-256 of the report. Importing the module registers the tool.
 
-The prompt in `working_example.py` is **directive** — it explicitly says *"Use the
-rubber_duck tool"* — so the happy path is deterministic on every run. That proves the
-tool is registered, callable, and returns output. It does not test whether the agent
-would *discover* the tool unprompted from its description; for that, use a non-leading
-prompt and let the model choose.
+The prompt in `working_example.py` is **directive** — it explicitly asks the agent to
+file the bug and report the official Case ID — so the happy path is deterministic and
+unfalsifiable: the hash-derived ID can only come from the tool. This proves the tool is
+registered, callable, returns output, and that output demonstrably reaches the agent's
+answer.
 
 ## Files
 

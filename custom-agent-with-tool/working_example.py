@@ -23,6 +23,7 @@ needs extra third-party packages, keep that in mind.
 
 import argparse
 import os
+import re
 import sys
 import time
 
@@ -31,22 +32,42 @@ import requests
 BASE_URL = os.getenv("OPENHANDS_CLOUD_API_URL", "https://app.all-hands.dev")
 WORKING_DIR = "/workspace"
 # The custom tool is deployed as a package in the working directory.
-PKG_NAME = "rubber_duck"
+PKG_NAME = "bug_registry"
 TOOL_MODULE = f"{PKG_NAME}.tool"
 
 # LLM configuration for the agent-server (LiteLLM proxy by default).
 LLM_MODEL = os.getenv("LLM_MODEL", "litellm_proxy/claude-sonnet-4-5-20250929")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://llm-proxy.app.all-hands.dev/")
 
+# The task requires the tool: only the bug_registry tool can produce the official
+# Case ID (a hash of the report), so a correct Case ID in the answer proves the
+# agent actually called the tool.
 TASK = (
-    "Use the rubber_duck tool to help debug this function, which raises "
-    "ZeroDivisionError on a single-element list: "
-    "def avg(nums): return sum(nums) / (len(nums) - 1)"
+    "My avg() function raises ZeroDivisionError on a single-element list:\n\n"
+    "    def avg(nums): return sum(nums) / (len(nums) - 1)\n\n"
+    "Please file this bug with the bug_registry tool, then tell me the official "
+    "Case ID and classification it assigns, and finally give me the corrected code."
 )
+
+# Matches the Case ID format produced by custom_tool_definition.py (BUG-XXXXXX).
+CASE_ID_RE = re.compile(r"BUG-[0-9A-F]{6}")
 
 
 def log(msg, prefix="[demo]"):
     print(f"{prefix} {msg}")
+
+
+def _event_text(event):
+    """Extract readable text from a MessageEvent or ObservationEvent."""
+    if event.get("kind") == "MessageEvent":
+        content = event.get("llm_message", {}).get("content")
+    else:
+        content = event.get("observation", {}).get("content")
+    if isinstance(content, str):
+        return content
+    return "\n".join(
+        c["text"] for c in (content or []) if isinstance(c, dict) and c.get("text")
+    )
 
 
 def check_env():
@@ -211,10 +232,28 @@ def run_and_verify(agent_server, session_key, conv_id):
         }
     )
 
+    # The Case ID the tool actually issued (ground truth from its observation).
+    tool_case_id = None
+    for e in items:
+        if e.get("kind") == "ObservationEvent" and e.get("tool_name") == PKG_NAME:
+            match = CASE_ID_RE.search(_event_text(e))
+            if match:
+                tool_case_id = match.group(0)
+                break
+
+    # The agent's final answer to the user.
+    final_answer = ""
+    for e in items:
+        if e.get("kind") == "MessageEvent":
+            msg = e.get("llm_message", {})
+            if msg.get("role") == "assistant":
+                final_answer = _event_text(e)
+
     log("")
     log("=== Verification ===")
     log(f"  registered tools: {registered}")
     log(f"  tools used: {used}")
+    log(f"  Case ID issued by tool: {tool_case_id}")
 
     ok = True
     if PKG_NAME in registered:
@@ -228,6 +267,17 @@ def run_and_verify(agent_server, session_key, conv_id):
     else:
         ok = False
         log(f"  FAIL: custom tool '{PKG_NAME}' was not used", "[error]")
+
+    # The strong check: the hash-derived Case ID can only come from the tool, so its
+    # presence in the final answer proves the tool's output shaped the response.
+    if tool_case_id and tool_case_id in final_answer:
+        log(f"  PASS: agent reported the tool's Case ID ({tool_case_id}) in its answer")
+    else:
+        ok = False
+        log(
+            f"  FAIL: tool Case ID ({tool_case_id}) not found in the agent's answer",
+            "[error]",
+        )
 
     return ok
 
