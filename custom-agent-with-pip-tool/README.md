@@ -10,7 +10,7 @@ This is the natural evolution of `custom-agent-with-tool`: same loading mechanis
 **"upload source files."**
 
 The example uses **[oh-markdown-tool](https://github.com/jpshackelford/oh-markdown-tool)**
-(`oh-markdown-tool[openhands]==0.2.0`), a real published package that provides structural
+(`oh-markdown-tool[openhands]==0.2.1`), a real published package that provides structural
 markdown editing (renumber sections, manage TOC, etc.). The agent fixes a markdown doc
 with messy numbering and adds a table of contents.
 
@@ -48,24 +48,19 @@ Expected output:
 ```
 [demo] === Verification ===
 [demo]   registered tools: ['terminal', 'file_editor', 'Markdown Document Tool', 'finish', 'think']
-[demo]   tools used: ['markdown_document']
+[demo]   tools used: ['file_editor', 'markdown_document']
 [demo]   PASS: tool 'markdown_document' is registered
 [demo]   PASS: tool 'markdown_document' was invoked by the agent
-[demo]   NOTE: file was not modified (known bug in oh-markdown-tool 0.2.0)
+[demo]   PASS: file was modified (TOC added, sections renumbered)
 [demo] SUCCESS: the tool was loaded from the pip package and used.
 ```
-
-**Note**: `oh-markdown-tool==0.2.0` has a known execution bug (IndexError during parsing)
-that prevents successful task completion, but the example still demonstrates the core
-objective: **loading**, **registering**, and **invoking** a custom tool from a published
-pip package. Both critical checks (tool registered + tool invoked) pass.
 
 ## How it works
 
 1. **Create a sandbox** (`POST /api/v1/sandboxes`) and wait for `RUNNING`.
 2. **Install the package** into `/workspace` via `pip install --target`:
    ```bash
-   pip install --target /workspace --no-deps oh-markdown-tool[openhands]==0.2.0
+   pip install --target /workspace --no-deps oh-markdown-tool[openhands]==0.2.1
    pip install --target /workspace mdformat pymarkdownlnt
    ```
    The `--target` flag puts the package into the conversation's working directory,

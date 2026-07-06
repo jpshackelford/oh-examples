@@ -35,7 +35,7 @@ BASE_URL = os.getenv("OPENHANDS_CLOUD_API_URL", "https://app.all-hands.dev")
 WORKING_DIR = "/workspace"
 
 # The published package and its tool.
-PACKAGE_SPEC = "oh-markdown-tool[openhands]==0.2.0"
+PACKAGE_SPEC = "oh-markdown-tool[openhands]==0.2.1"
 TOOL_NAME = "markdown_document"
 TOOL_MODULE = "oh_markdown_tool.tool"
 
@@ -288,12 +288,11 @@ def run_and_verify(agent_server, session_key, conv_id):
         ok = False
         log(f"  FAIL: tool '{TOOL_NAME}' was not invoked", "[error]")
 
-    # Note: oh-markdown-tool 0.2.0 has an execution bug (IndexError) that prevents
-    # successful task completion, but registration and invocation both work.
     if has_toc and has_renumbered:
         log("  PASS: file was modified (TOC added, sections renumbered)")
     else:
-        log("  NOTE: file was not modified (known bug in oh-markdown-tool 0.2.0)", "[warn]")
+        ok = False
+        log("  FAIL: file was not properly modified", "[error]")
 
     return ok
 
