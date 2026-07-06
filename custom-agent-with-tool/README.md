@@ -52,6 +52,13 @@ python working_example.py            # runs and cleans up the sandbox
 python working_example.py --keep     # leave the sandbox up for inspection
 ```
 
+> **⚠️ Timing note**: If the script runs and deletes the sandbox too quickly, conversation
+> events may not have synced from the agent-server to the main API yet, making the
+> conversation appear empty or incomplete in the Cloud UI. To inspect conversation events
+> in real time, **run with `--keep`** to leave the sandbox alive, or add a delay before
+> cleanup. The script prints the conversation URL — you can view it while the sandbox is
+> still running.
+
 Expected output:
 
 ```
