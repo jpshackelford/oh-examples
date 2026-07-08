@@ -62,19 +62,18 @@ def list_sandboxes(limit: int = 100) -> list[dict[str, Any]]:
 
 def get_sandbox(sandbox_id: str) -> dict[str, Any]:
     """Get details for a specific sandbox."""
-    # Use search endpoint since single GET returns HTML
-    url = f"{API_BASE_URL}/api/v1/sandboxes/search"
-    params = {"limit": 100}
+    # Use batch GET endpoint with single ID (more efficient than search)
+    url = f"{API_BASE_URL}/api/v1/sandboxes"
+    params = {"id": [sandbox_id]}
 
     response = requests.get(url, headers=get_headers(), params=params)
     response.raise_for_status()
 
-    data = response.json()
-    sandboxes = data.get("items", [])
-
-    for sandbox in sandboxes:
-        if sandbox.get("id") == sandbox_id:
-            return sandbox
+    sandboxes = response.json()
+    
+    # Batch endpoint returns array, with null for missing sandboxes
+    if sandboxes and sandboxes[0] is not None:
+        return sandboxes[0]
 
     raise ValueError(f"Sandbox {sandbox_id} not found")
 
@@ -98,7 +97,9 @@ def delete_sandbox(sandbox_id: str) -> dict[str, Any]:
     Returns:
         Response data from the delete operation
     """
-    # Sandbox DELETE uses query parameter
+    # Note: API requires sandbox_id in both path AND query parameter
+    # Path param: /api/v1/sandboxes/{id}
+    # Query param: ?sandbox_id=...
     url = f"{API_BASE_URL}/api/v1/sandboxes/{sandbox_id}"
     params = {"sandbox_id": sandbox_id}
 
@@ -113,6 +114,9 @@ def pause_sandbox(sandbox_id: str) -> dict[str, Any]:
     Pause a sandbox (scales deployment to 0 but keeps PVC).
 
     This is different from delete - the PVC is preserved.
+    
+    Note: This function is included for documentation purposes to demonstrate
+    the pause API endpoint, even though it's not used by the CLI commands.
     """
     url = f"{API_BASE_URL}/api/v1/sandboxes/{sandbox_id}/pause"
 

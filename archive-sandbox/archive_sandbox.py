@@ -180,7 +180,7 @@ def cmd_archive(conversation_id: str):
         if sandbox_id:
             print(f"This will delete the sandbox '{sandbox_id}' and release its PVC.")
 
-    except requests.exceptions.HTTPException as e:
+    except requests.exceptions.HTTPError as e:
         if e.response.status_code == 404:
             print(
                 f"Warning: Conversation {conversation_id} "
@@ -204,7 +204,7 @@ def cmd_archive(conversation_id: str):
             "\nThe sandbox and its PVC have been cleaned up "
             "(if no other conversations use it)."
         )
-    except requests.exceptions.HTTPException as e:
+    except requests.exceptions.HTTPError as e:
         if e.response.status_code == 404:
             print(f"Conversation {conversation_id} not found (may already be deleted)")
         else:
