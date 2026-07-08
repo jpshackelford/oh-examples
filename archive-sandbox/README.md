@@ -95,6 +95,7 @@ The runtime-api runs a cleanup cronjob (`cleanup.py`) every 5 minutes that:
 ## Files in This Example
 
 - **`archive_sandbox.py`** - Main CLI tool for archiving conversations
+- **`force_cleanup.py`** - Force immediate PVC cleanup by deleting sandbox directly
 - **`example_create_and_archive.py`** - Complete workflow demonstration
 - **`requirements.txt`** - Python dependencies
 - **`README.md`** - This documentation
@@ -129,6 +130,33 @@ This will:
 5. Verify deletion
 
 Perfect for understanding the complete lifecycle!
+
+### Force Immediate PVC Cleanup
+
+If you need to release PVCs **immediately** without waiting for the cleanup cronjob, use the sandbox DELETE endpoint directly:
+
+```bash
+# List all sandboxes
+python force_cleanup.py --list
+
+# Force delete a specific sandbox (immediate PVC release)
+python force_cleanup.py <sandbox_id>
+
+# Force delete all idle (PAUSED/STOPPED) sandboxes
+python force_cleanup.py --cleanup-idle
+```
+
+**Key Difference**:
+- **Conversation DELETE** (`archive_sandbox.py`) - Deletes conversation, cleans up sandbox only if no other conversations use it
+- **Sandbox DELETE** (`force_cleanup.py`) - **Forces immediate cleanup** of all K8s resources including PVC, regardless of conversation state
+
+The sandbox DELETE endpoint directly calls the runtime-api's `stop_runtime()` function, which immediately executes `delete_runtime_and_workspace_in_k8s()`. This bypasses the cleanup cronjob and releases the PVC right away.
+
+**When to use force cleanup**:
+- ✅ You need immediate storage release
+- ✅ You're cleaning up test/development sandboxes
+- ✅ You've verified no important data remains
+- ⚠️ **Warning**: This deletes the sandbox even if conversations still reference it!
 
 ### List All Conversations
 
@@ -341,6 +369,46 @@ curl -X POST \
 python archive_sandbox.py archive <conversation_id>
 ```
 
+## API Endpoints for PVC Cleanup
+
+### Enterprise-Server API (OpenHands Cloud)
+
+You can use these endpoints with just your `OH_API_KEY` - **no direct runtime-api access required**:
+
+| Endpoint | Method | Purpose | PVC Cleanup |
+|----------|--------|---------|-------------|
+| `/api/v1/app-conversations/{conversation_id}` | DELETE | Delete conversation | ✅ Yes, if no other conversations use sandbox |
+| `/api/v1/sandboxes/{sandbox_id}` | DELETE | Force delete sandbox | ✅ **Immediate** - always deletes PVC |
+| `/api/v1/sandboxes/{sandbox_id}/pause` | POST | Pause sandbox | ❌ No - preserves PVC |
+| `/api/organizations/{org_id}/conversations/{conversation_id}/stop` | POST | Stop conversation | ❌ No - preserves PVC |
+
+**Key Insight**: Both conversation DELETE and sandbox DELETE work through the enterprise-server API. You do **NOT** need direct runtime-api access to force PVC cleanup!
+
+### How It Works
+
+```
+User → Enterprise-Server API → Runtime-API → Kubernetes
+       (OH_API_KEY)            (internal)     (PVC deletion)
+```
+
+When you call `DELETE /api/v1/sandboxes/{sandbox_id}`:
+1. Enterprise-Server validates your API key
+2. Calls runtime-api's `/stop` endpoint internally
+3. Runtime-api executes `delete_runtime_and_workspace_in_k8s()`
+4. PVC is immediately deleted from Kubernetes
+
+### Runtime-API Direct Access (Optional)
+
+If you have direct runtime-api access (e.g., via port-forward for testing), you can also use:
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/stop` | POST | Stop runtime and delete all resources |
+| `/pause` | POST | Pause runtime (keeps PVC) |
+| `/list` | GET | List all runtimes |
+
+However, **in production you should use the enterprise-server API** (sandbox DELETE) which provides proper authentication, rate limiting, and audit logging.
+
 ## Related Resources
 
 - [OpenHands Runtime API](https://github.com/All-Hands-AI/runtime-api) - The service managing sandboxes
@@ -351,10 +419,23 @@ python archive_sandbox.py archive <conversation_id>
 
 **Key Takeaways**:
 
-1. ✅ **Deleting a conversation releases its PVC** - This is the primary way to free storage
-2. ✅ **Pausing/Stopping preserves the PVC** - For resuming work later
-3. ✅ **Use the cleanup command** - Bulk archive stopped conversations
-4. ✅ **Automatic workspace archiving** - May preserve files before PVC deletion
-5. ✅ **Check before deleting** - Download important files first
+1. ✅ **Two ways to release PVCs**:
+   - **Conversation DELETE** - Deletes conversation, cleans up sandbox if not shared
+   - **Sandbox DELETE** - Force immediate cleanup, always releases PVC
+2. ✅ **No runtime-api access needed** - Use enterprise-server API with `OH_API_KEY`
+3. ✅ **Pausing/Stopping preserves the PVC** - For resuming work later
+4. ✅ **Force cleanup for immediate release** - Use `force_cleanup.py` to bypass cronjob
+5. ✅ **Bulk cleanup available** - Archive all stopped conversations/sandboxes at once
+6. ✅ **Automatic workspace archiving** - May preserve files before PVC deletion
+7. ✅ **Check before deleting** - Download important files first
 
-When in doubt, remember: **DELETE conversation → Cleanup sandbox → Release PVC → Free storage** ✨
+**Quick Decision Guide**:
+
+| Scenario | Use This | Command |
+|----------|----------|---------|
+| Clean up one finished conversation | Conversation DELETE | `python archive_sandbox.py archive <conv_id>` |
+| Need immediate storage release | Sandbox DELETE | `python force_cleanup.py <sandbox_id>` |
+| Clean up all stopped conversations | Bulk conversation cleanup | `python archive_sandbox.py cleanup` |
+| Clean up all idle sandboxes | Bulk sandbox cleanup | `python force_cleanup.py --cleanup-idle` |
+
+When in doubt, remember: **DELETE sandbox → Immediate PVC release → Storage freed instantly** ✨
