@@ -33,7 +33,7 @@ The runtime API's `delete_runtime_and_workspace_in_k8s()` function removes all K
 # From runtime-api/k8s.py
 def delete_runtime_and_workspace_in_k8s(runtime_id, pod_id: str | None = None):
     """Delete all K8s resources for a runtime."""
-    
+
     # Resources deleted in order:
     # 1. Deployment
     # 2. ServiceAccount

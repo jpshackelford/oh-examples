@@ -27,8 +27,9 @@ Requirements:
 
 import os
 import sys
+from typing import Any
+
 import requests
-from typing import Dict, Any, List
 
 
 API_BASE_URL = os.getenv("OPENHANDS_API_URL", "https://app.all-hands.dev")
@@ -39,7 +40,7 @@ if not API_KEY:
     sys.exit(1)
 
 
-def get_headers() -> Dict[str, str]:
+def get_headers() -> dict[str, str]:
     """Get standard headers for API requests."""
     return {
         "Authorization": f"Bearer {API_KEY}",
@@ -47,81 +48,81 @@ def get_headers() -> Dict[str, str]:
     }
 
 
-def list_sandboxes(limit: int = 100) -> List[Dict[str, Any]]:
+def list_sandboxes(limit: int = 100) -> list[dict[str, Any]]:
     """List all sandboxes for the authenticated user."""
     url = f"{API_BASE_URL}/api/v1/sandboxes/search"
     params = {"limit": limit}
-    
+
     response = requests.get(url, headers=get_headers(), params=params)
     response.raise_for_status()
-    
+
     data = response.json()
     return data.get("items", [])
 
 
-def get_sandbox(sandbox_id: str) -> Dict[str, Any]:
+def get_sandbox(sandbox_id: str) -> dict[str, Any]:
     """Get details for a specific sandbox."""
     # Use search endpoint since single GET returns HTML
     url = f"{API_BASE_URL}/api/v1/sandboxes/search"
     params = {"limit": 100}
-    
+
     response = requests.get(url, headers=get_headers(), params=params)
     response.raise_for_status()
-    
+
     data = response.json()
     sandboxes = data.get("items", [])
-    
+
     for sandbox in sandboxes:
         if sandbox.get("id") == sandbox_id:
             return sandbox
-    
+
     raise ValueError(f"Sandbox {sandbox_id} not found")
 
 
-def delete_sandbox(sandbox_id: str) -> Dict[str, Any]:
+def delete_sandbox(sandbox_id: str) -> dict[str, Any]:
     """
     Force immediate deletion of a sandbox and all its resources.
-    
+
     This directly calls the runtime-api's stop endpoint which:
     1. Immediately deletes the Kubernetes Deployment
     2. Immediately deletes the PVC → Releases storage!
     3. Deletes Service, Ingress/HTTPRoute, ServiceAccount, PDB
     4. Deletes VolumeSnapshot if any
-    
+
     Unlike conversation deletion which waits if other conversations share
     the sandbox, this FORCES immediate cleanup regardless.
-    
+
     Args:
         sandbox_id: The sandbox ID to delete
-        
+
     Returns:
         Response data from the delete operation
     """
     # Sandbox DELETE uses query parameter
     url = f"{API_BASE_URL}/api/v1/sandboxes/{sandbox_id}"
     params = {"sandbox_id": sandbox_id}
-    
+
     response = requests.delete(url, headers=get_headers(), params=params)
     response.raise_for_status()
-    
+
     return response.json()
 
 
-def pause_sandbox(sandbox_id: str) -> Dict[str, Any]:
+def pause_sandbox(sandbox_id: str) -> dict[str, Any]:
     """
     Pause a sandbox (scales deployment to 0 but keeps PVC).
-    
+
     This is different from delete - the PVC is preserved.
     """
     url = f"{API_BASE_URL}/api/v1/sandboxes/{sandbox_id}/pause"
-    
+
     response = requests.post(url, headers=get_headers())
     response.raise_for_status()
-    
+
     return response.json()
 
 
-def print_sandbox_summary(sandbox: Dict[str, Any]) -> None:
+def print_sandbox_summary(sandbox: dict[str, Any]) -> None:
     """Print a formatted summary of a sandbox."""
     print(f"  ID: {sandbox.get('id')}")
     print(f"  Status: {sandbox.get('status')}")
@@ -133,17 +134,17 @@ def print_sandbox_summary(sandbox: Dict[str, Any]) -> None:
 def cmd_force_delete(sandbox_id: str):
     """Force delete a specific sandbox."""
     print(f"Force deleting sandbox {sandbox_id}...\n")
-    
+
     # Get sandbox details
     try:
         sandbox = get_sandbox(sandbox_id)
         print("Sandbox details:")
         print_sandbox_summary(sandbox)
-        
+
     except Exception as e:
         print(f"Warning: Could not get sandbox details: {e}")
         print()
-    
+
     # Confirm deletion
     print("⚠️  WARNING: This will IMMEDIATELY delete the sandbox and release its PVC.")
     print("    This action cannot be undone!")
@@ -152,9 +153,9 @@ def cmd_force_delete(sandbox_id: str):
     if confirm != "DELETE":
         print("Cancelled.")
         return
-    
+
     print()
-    
+
     # Delete the sandbox
     try:
         result = delete_sandbox(sandbox_id)
@@ -169,7 +170,7 @@ def cmd_force_delete(sandbox_id: str):
         print("  ✓ VolumeSnapshot (if any)")
         print()
         print("The PVC has been released immediately! ✨")
-        
+
     except requests.exceptions.HTTPError as e:
         if e.response.status_code == 404:
             print(f"Sandbox {sandbox_id} not found (may already be deleted)")
@@ -181,61 +182,64 @@ def cmd_force_delete(sandbox_id: str):
 def cmd_cleanup_idle():
     """Force delete all PAUSED or STOPPED sandboxes."""
     print("Fetching sandboxes...\n")
-    
+
     sandboxes = list_sandboxes()
-    
+
     # Filter to PAUSED/STOPPED/MISSING sandboxes
     idle = [
-        sb for sb in sandboxes
-        if sb.get('status') in ['PAUSED', 'STOPPED', 'MISSING']
+        sb for sb in sandboxes if sb.get("status") in ["PAUSED", "STOPPED", "MISSING"]
     ]
-    
+
     if not idle:
         print("No idle sandboxes found to clean up.")
         return
-    
+
     print(f"Found {len(idle)} idle sandbox(es) to clean up:\n")
-    
+
     for i, sb in enumerate(idle, 1):
         print(f"{i}. {sb.get('id')} - {sb.get('status')}")
-    
+
     print()
-    print("⚠️  WARNING: This will IMMEDIATELY delete all these sandboxes and release their PVCs.")
-    confirm = input(f"Type 'DELETE ALL' to confirm: ")
+    msg = (
+        "⚠️  WARNING: This will IMMEDIATELY delete all these sandboxes "
+        "and release their PVCs."
+    )
+    print(msg)
+    confirm = input("Type 'DELETE ALL' to confirm: ")
     if confirm != "DELETE ALL":
         print("Cancelled.")
         return
-    
+
     print()
     for sb in idle:
-        sb_id = sb.get('id')
+        sb_id = sb.get("id")
         try:
             delete_sandbox(sb_id)
             print(f"✓ Deleted sandbox {sb_id} ({sb.get('status')})")
         except Exception as e:
             print(f"✗ Failed to delete sandbox {sb_id}: {e}")
-    
+
     print(f"\n✓ Cleanup complete. {len(idle)} sandbox(es) deleted.")
 
 
 def cmd_list():
     """List all sandboxes with their status."""
     print("Fetching sandboxes...\n")
-    
+
     sandboxes = list_sandboxes()
-    
+
     if not sandboxes:
         print("No sandboxes found.")
         return
-    
+
     print(f"Found {len(sandboxes)} sandbox(es):\n")
-    
+
     # Group by status
     by_status = {}
     for sb in sandboxes:
-        status = sb.get('status', 'UNKNOWN')
+        status = sb.get("status", "UNKNOWN")
         by_status.setdefault(status, []).append(sb)
-    
+
     for status, sbs in sorted(by_status.items()):
         print(f"{status}: {len(sbs)}")
         for sb in sbs:
@@ -248,9 +252,9 @@ def main():
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)
-    
+
     command = sys.argv[1]
-    
+
     if command == "--cleanup-idle":
         cmd_cleanup_idle()
     elif command == "--list":
