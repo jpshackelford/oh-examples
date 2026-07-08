@@ -61,12 +61,20 @@ def list_sandboxes(limit: int = 100) -> List[Dict[str, Any]]:
 
 def get_sandbox(sandbox_id: str) -> Dict[str, Any]:
     """Get details for a specific sandbox."""
-    # Note: The API doesn't have a GET /sandboxes/{id} endpoint
-    # We need to search for it
-    sandboxes = list_sandboxes()
+    # Use search endpoint since single GET returns HTML
+    url = f"{API_BASE_URL}/api/v1/sandboxes/search"
+    params = {"limit": 100}
+    
+    response = requests.get(url, headers=get_headers(), params=params)
+    response.raise_for_status()
+    
+    data = response.json()
+    sandboxes = data.get("items", [])
+    
     for sandbox in sandboxes:
         if sandbox.get("id") == sandbox_id:
             return sandbox
+    
     raise ValueError(f"Sandbox {sandbox_id} not found")
 
 
@@ -89,9 +97,11 @@ def delete_sandbox(sandbox_id: str) -> Dict[str, Any]:
     Returns:
         Response data from the delete operation
     """
+    # Sandbox DELETE uses query parameter
     url = f"{API_BASE_URL}/api/v1/sandboxes/{sandbox_id}"
+    params = {"sandbox_id": sandbox_id}
     
-    response = requests.delete(url, headers=get_headers())
+    response = requests.delete(url, headers=get_headers(), params=params)
     response.raise_for_status()
     
     return response.json()

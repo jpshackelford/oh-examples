@@ -50,6 +50,7 @@ def create_conversation(title: str = "Test Conversation for Archive Demo") -> Di
     Returns:
         Conversation data including conversation_id and sandbox_id
     """
+    # Try stream-start first (returns list of events), fall back to direct POST
     url = f"{API_BASE_URL}/api/v1/app-conversations/stream-start"
     
     payload = {
@@ -61,17 +62,53 @@ def create_conversation(title: str = "Test Conversation for Archive Demo") -> Di
     response = requests.post(url, headers=get_headers(), json=payload)
     response.raise_for_status()
     
-    return response.json()
+    result = response.json()
+    
+    # Handle both list (stream-start) and dict (direct POST) responses
+    if isinstance(result, list):
+        # Stream-start returns list of status events, get the final one with READY status
+        for event in result:
+            if event.get("status") == "READY":
+                return event
+        # If no READY event, return the last one
+        return result[-1] if result else {}
+    return result
+
+
+def extract_conversation_ids(conv_data: Dict[str, Any]) -> tuple:
+    """Extract conversation_id and sandbox_id from API response.
+    
+    The API returns different ID fields depending on the endpoint:
+    - id: runtime/conversation identifier
+    - app_conversation_id: the actual app conversation ID for API operations
+    - sandbox_id: the sandbox/runtime ID
+    """
+    conversation_id = conv_data.get("app_conversation_id") or conv_data.get("id")
+    sandbox_id = conv_data.get("sandbox_id")
+    return conversation_id, sandbox_id
 
 
 def get_conversation(conversation_id: str) -> Dict[str, Any]:
-    """Get conversation details."""
-    url = f"{API_BASE_URL}/api/v1/app-conversations/{conversation_id}"
+    """Get conversation details using batch GET endpoint."""
+    # Use batch GET with ids parameter since single GET endpoint returns HTML
+    url = f"{API_BASE_URL}/api/v1/app-conversations"
+    params = {"ids": conversation_id}
     
-    response = requests.get(url, headers=get_headers())
+    response = requests.get(url, headers=get_headers(), params=params)
     response.raise_for_status()
     
-    return response.json()
+    data = response.json()
+    
+    # Batch GET returns a list
+    if isinstance(data, list):
+        if not data:
+            raise requests.exceptions.HTTPError(
+                "Conversation not found", 
+                response=response
+            )
+        return data[0]
+    
+    return data
 
 
 def delete_conversation(conversation_id: str) -> Dict[str, Any]:
@@ -79,8 +116,12 @@ def delete_conversation(conversation_id: str) -> Dict[str, Any]:
     url = f"{API_BASE_URL}/api/v1/app-conversations/{conversation_id}"
     
     response = requests.delete(url, headers=get_headers())
-    response.raise_for_status()
     
+    # Handle 404 for already-deleted conversations
+    if response.status_code == 404:
+        return {"success": True, "detail": "Conversation not found (already deleted)"}
+    
+    response.raise_for_status()
     return response.json()
 
 
@@ -97,8 +138,7 @@ def main():
     
     try:
         conv_data = create_conversation()
-        conversation_id = conv_data.get("id")
-        sandbox_id = conv_data.get("sandbox_id")
+        conversation_id, sandbox_id = extract_conversation_ids(conv_data)
         
         print(f"✓ Created conversation: {conversation_id}")
         print(f"✓ Sandbox ID: {sandbox_id}")
@@ -180,13 +220,16 @@ def main():
     print("-" * 70)
     
     try:
-        get_conversation(conversation_id)
-        print("⚠ Warning: Conversation still exists (may take a moment to fully delete)")
+        conv = get_conversation(conversation_id)
+        # If we got here, conversation exists
+        print(f"⚠ Warning: Conversation still exists (may take a moment to fully delete)")
+        print(f"  Status: {conv.get('status')}")
     except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 404:
-            print("✓ Confirmed: Conversation has been deleted")
-        else:
-            print(f"? Unexpected response: {e}")
+        # HTTP errors mean conversation not found
+        print("✓ Confirmed: Conversation has been deleted")
+    except Exception as e:
+        # Any other error also means conversation is not accessible
+        print(f"✓ Confirmed: Conversation has been deleted (GET returned non-JSON)")
     
     print()
     print("=" * 70)

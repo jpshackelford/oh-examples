@@ -77,12 +77,22 @@ def get_conversation(conversation_id: str) -> Dict[str, Any]:
     Returns:
         Conversation object with details
     """
-    url = f"{API_BASE_URL}/api/v1/app-conversations/{conversation_id}"
+    # Use batch GET with ids parameter since single GET endpoint returns HTML
+    url = f"{API_BASE_URL}/api/v1/app-conversations"
+    params = {"ids": conversation_id}
     
-    response = requests.get(url, headers=get_headers())
+    response = requests.get(url, headers=get_headers(), params=params)
     response.raise_for_status()
     
-    return response.json()
+    data = response.json()
+    
+    # Batch GET returns a list
+    if isinstance(data, list):
+        if not data:
+            raise ValueError(f"Conversation {conversation_id} not found")
+        return data[0]
+    
+    return data
 
 
 def delete_conversation(conversation_id: str) -> Dict[str, Any]:
@@ -110,8 +120,12 @@ def delete_conversation(conversation_id: str) -> Dict[str, Any]:
     url = f"{API_BASE_URL}/api/v1/app-conversations/{conversation_id}"
     
     response = requests.delete(url, headers=get_headers())
-    response.raise_for_status()
     
+    # Handle 404 for already-deleted conversations
+    if response.status_code == 404:
+        return {"success": True, "detail": "Conversation not found (already deleted)"}
+    
+    response.raise_for_status()
     return response.json()
 
 
