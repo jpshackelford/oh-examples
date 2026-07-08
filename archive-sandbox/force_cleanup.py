@@ -70,7 +70,7 @@ def get_sandbox(sandbox_id: str) -> dict[str, Any]:
     response.raise_for_status()
 
     sandboxes = response.json()
-    
+
     # Batch endpoint returns array, with null for missing sandboxes
     if sandboxes and sandboxes[0] is not None:
         return sandboxes[0]
@@ -114,7 +114,7 @@ def pause_sandbox(sandbox_id: str) -> dict[str, Any]:
     Pause a sandbox (scales deployment to 0 but keeps PVC).
 
     This is different from delete - the PVC is preserved.
-    
+
     Note: This function is included for documentation purposes to demonstrate
     the pause API endpoint, even though it's not used by the CLI commands.
     """
