@@ -8,148 +8,248 @@
     />
     <title>Dad Jokes Settings</title>
     <style>
+      /*
+       * AgentCanvas Design Tokens (Cool Grey Palette)
+       * These match the tokens defined in agent-canvas/hero.ts and tailwind.css
+       */
+      :root {
+        /* Cool Grey Scale */
+        --cool-grey-50: #F7F9FC;
+        --cool-grey-100: #EEF2F7;
+        --cool-grey-200: #DCE3EE;
+        --cool-grey-300: #C3CDDC;
+        --cool-grey-400: #A3B0C4;
+        --cool-grey-500: #7E8A9E;
+        --cool-grey-600: #626D82;
+        --cool-grey-700: #4B5468;
+        --cool-grey-800: #383F50;
+        --cool-grey-900: #2C313F;
+        --cool-grey-925: #21252F;
+        --cool-grey-950: #0B0E14;
+        --cool-grey-975: #05070A;
+
+        /* Semantic Colors */
+        --oh-background: var(--cool-grey-950);
+        --oh-foreground: var(--cool-grey-100);
+        --oh-surface: var(--cool-grey-925);
+        --oh-surface-raised: var(--cool-grey-900);
+        --oh-border: var(--cool-grey-700);
+        --oh-border-subtle: var(--cool-grey-800);
+        --oh-text-secondary: var(--cool-grey-300);
+        --oh-text-dim: var(--cool-grey-500);
+        --oh-muted: var(--cool-grey-400);
+        --oh-primary: #c9b974;
+        --oh-success: #a5e75e;
+        --oh-danger: #e76a5e;
+        --oh-radius: 8px;
+      }
+
       * {
         box-sizing: border-box;
       }
+
       body {
         font-family: system-ui, -apple-system, sans-serif;
         margin: 0;
         padding: 24px;
-        color: #e5e7eb;
-        background: #0b0f17;
+        color: var(--oh-foreground);
+        background: var(--oh-background);
+        line-height: 1.5;
       }
+
       h1 {
-        margin: 0 0 8px 0;
-        font-size: 24px;
+        margin: 0 0 4px 0;
+        font-size: 20px;
+        font-weight: 600;
+        color: #ffffff;
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 8px;
       }
+
       .subtitle {
-        color: #9ca3af;
+        color: var(--oh-text-secondary);
         margin-bottom: 24px;
         font-size: 14px;
       }
-      .section {
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 20px;
-      }
-      .section h2 {
-        margin: 0 0 16px 0;
-        font-size: 16px;
-        color: #f3f4f6;
-      }
-      label {
-        display: block;
-        margin-bottom: 6px;
-        font-size: 14px;
-        color: #9ca3af;
-      }
-      input[type="text"] {
-        width: 100%;
-        padding: 10px 12px;
-        border-radius: 8px;
-        border: 1px solid #374151;
-        background: #111827;
-        color: #e5e7eb;
-        font-size: 14px;
+
+      /* Form field container */
+      .field {
         margin-bottom: 16px;
       }
+
+      .field label {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 14px;
+        color: var(--oh-foreground);
+      }
+
+      /* Text inputs - matching formControlSettingsFieldClassName */
+      input[type="text"] {
+        width: 100%;
+        height: 36px;
+        padding: 0 12px;
+        border-radius: var(--oh-radius);
+        border: 1px solid var(--oh-border);
+        background: var(--cool-grey-925);
+        color: #ffffff;
+        font-size: 14px;
+        transition: border-color 75ms, box-shadow 75ms;
+      }
+
+      input[type="text"]::placeholder {
+        color: var(--oh-text-dim);
+        font-style: italic;
+      }
+
       input[type="text"]:focus {
         outline: none;
-        border-color: #6366f1;
-        box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+        border-color: rgba(255, 255, 255, 0.4);
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2);
       }
+
+      /* Section dividers */
+      .section {
+        margin-bottom: 32px;
+      }
+
+      .section-title {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--oh-foreground);
+        margin: 0 0 16px 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      /* Checkbox styling */
       .checkbox-group {
         display: flex;
         flex-direction: column;
         gap: 12px;
       }
+
       .checkbox-item {
         display: flex;
         align-items: center;
         gap: 10px;
+        cursor: pointer;
       }
+
       .checkbox-item input[type="checkbox"] {
-        width: 18px;
-        height: 18px;
-        accent-color: #6366f1;
+        width: 16px;
+        height: 16px;
+        accent-color: var(--oh-primary);
+        cursor: pointer;
       }
+
       .checkbox-item span {
         font-size: 14px;
+        color: var(--oh-foreground);
       }
+
+      /* Button row */
       .btn-row {
         display: flex;
         gap: 12px;
-        margin-top: 20px;
+        margin-top: 24px;
       }
+
+      /* Buttons - matching AgentCanvas button styles */
       button {
-        padding: 10px 20px;
-        border-radius: 8px;
-        border: none;
+        height: 36px;
+        padding: 0 16px;
+        border-radius: var(--oh-radius);
         font-size: 14px;
         font-weight: 500;
         cursor: pointer;
-        transition: all 0.2s;
+        transition: background-color 75ms, border-color 75ms, opacity 75ms;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
       }
+
       .btn-primary {
-        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-        color: white;
+        background: var(--oh-primary);
+        color: var(--cool-grey-950);
+        border: none;
       }
+
       .btn-primary:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        opacity: 0.9;
       }
+
+      .btn-secondary {
+        background: var(--cool-grey-800);
+        color: var(--oh-foreground);
+        border: 1px solid var(--oh-border);
+      }
+
+      .btn-secondary:hover {
+        background: var(--cool-grey-700);
+      }
+
       .btn-danger {
-        background: rgba(239, 68, 68, 0.1);
-        color: #ef4444;
-        border: 1px solid rgba(239, 68, 68, 0.3);
+        background: transparent;
+        color: var(--oh-danger);
+        border: 1px solid var(--oh-danger);
       }
+
       .btn-danger:hover {
-        background: rgba(239, 68, 68, 0.2);
+        background: rgba(231, 106, 94, 0.1);
       }
+
+      /* Status messages */
       #status {
         margin-top: 16px;
         padding: 12px;
-        border-radius: 8px;
+        border-radius: var(--oh-radius);
         font-size: 13px;
         display: none;
       }
+
       #status.success {
         display: block;
-        background: rgba(16, 185, 129, 0.1);
-        color: #10b981;
-        border: 1px solid rgba(16, 185, 129, 0.2);
+        background: rgba(165, 231, 94, 0.1);
+        color: var(--oh-success);
+        border: 1px solid rgba(165, 231, 94, 0.3);
       }
+
       #status.error {
         display: block;
-        background: rgba(239, 68, 68, 0.1);
-        color: #ef4444;
-        border: 1px solid rgba(239, 68, 68, 0.2);
+        background: rgba(231, 106, 94, 0.1);
+        color: var(--oh-danger);
+        border: 1px solid rgba(231, 106, 94, 0.3);
       }
+
+      /* Stats cards */
       .stats {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
         gap: 12px;
-        margin-top: 16px;
+        margin-top: 12px;
       }
+
       .stat-card {
-        background: rgba(255, 255, 255, 0.03);
-        border-radius: 8px;
+        background: var(--cool-grey-925);
+        border: 1px solid var(--oh-border-subtle);
+        border-radius: var(--oh-radius);
         padding: 16px;
         text-align: center;
       }
+
       .stat-value {
-        font-size: 28px;
-        font-weight: bold;
-        color: #f59e0b;
+        font-size: 24px;
+        font-weight: 600;
+        color: var(--oh-primary);
       }
+
       .stat-label {
         font-size: 12px;
-        color: #6b7280;
+        color: var(--oh-muted);
         margin-top: 4px;
       }
     </style>
@@ -159,16 +259,19 @@
     <p class="subtitle">Configure your premium dad humor experience</p>
 
     <div class="section">
-      <h2>🎭 Personalization</h2>
-      <label for="dadName">Your Dad Name</label>
-      <input type="text" id="dadName" placeholder="e.g., Papa, Pop, Old Man, Father Unit" />
-      
-      <label for="victimName">Victim's Name (optional)</label>
-      <input type="text" id="victimName" placeholder="e.g., Sport, Champ, Kiddo" />
+      <h3 class="section-title">🎭 Personalization</h3>
+      <div class="field">
+        <label for="dadName">Your Dad Name</label>
+        <input type="text" id="dadName" placeholder="e.g., Papa, Pop, Old Man, Father Unit" />
+      </div>
+      <div class="field">
+        <label for="victimName">Victim's Name (optional)</label>
+        <input type="text" id="victimName" placeholder="e.g., Sport, Champ, Kiddo" />
+      </div>
     </div>
 
     <div class="section">
-      <h2>🎯 Joke Categories</h2>
+      <h3 class="section-title">🎯 Joke Categories</h3>
       <div class="checkbox-group">
         <label class="checkbox-item">
           <input type="checkbox" id="catProgramming" checked />
@@ -190,7 +293,7 @@
     </div>
 
     <div class="section">
-      <h2>📊 Your Dad Stats</h2>
+      <h3 class="section-title">📊 Your Dad Stats</h3>
       <div class="stats">
         <div class="stat-card">
           <div class="stat-value" id="totalGroans">0</div>
@@ -215,6 +318,26 @@
         var parentWindow = window.parent;
         var nextId = 1;
         var pending = {};
+
+        // --- Auto-resize support ---
+        // Reports the current content height to the host so the iframe can grow
+        // to fit the content naturally, like native settings pages.
+        function reportContentHeight() {
+          var height = document.body.scrollHeight;
+          parentWindow.postMessage({ type: "agentCanvas:resize", height: height }, "*");
+        }
+
+        function enableAutoResize() {
+          reportContentHeight();
+          var observer = new ResizeObserver(function () {
+            reportContentHeight();
+          });
+          observer.observe(document.body);
+        }
+
+        // Enable auto-resize for settings pages
+        enableAutoResize();
+        // --- End auto-resize support ---
 
         window.addEventListener("message", function (event) {
           if (event.source !== parentWindow) return;
