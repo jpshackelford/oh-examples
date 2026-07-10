@@ -9,8 +9,8 @@ Because every coding session needs more groaning. 🙄
 
 ## Features
 
-### 🎯 Sidebar Panel
-Click the mustache icon in the activity bar to open the Dad Jokes panel:
+### 🎯 Full-Width Page
+Click "Dad Jokes" in the sidebar (below Automate) to open the Dad Jokes page:
 - View a random programming/tech dad joke
 - Click "Reveal Punchline" for the payoff
 - Rate jokes with 😩 Groan or 😂 LOL buttons  
@@ -67,12 +67,11 @@ This extension requests:
 
 ## Extension Points Used
 
-This extension demonstrates all currently available extension points:
+This extension demonstrates many of the available extension points:
 
 | Point | Usage |
 |-------|-------|
-| `viewsContainers.activitybar` | Adds the 👴 icon to the sidebar rail |
-| `views` | The main joke panel (webview) |
+| `pages` | Full-width page in sidebar (like Customize/Automate) at `/x/dadjokes.groan/jokes` |
 | `commands` | "Tell me a Dad Joke" and "Words of Wisdom" |
 | `menus.conversationTabs/context` | Joke command in tab context menu |
 | `menus.chatInput/actions` | Encouragement in chat actions menu |
@@ -92,9 +91,9 @@ This extension demonstrates all currently available extension points:
 The extension consists of:
 - `extension.json` — Manifest declaring all contribution points
 - `main.js` — Web Worker entry (commands, no DOM access)
-- `panel.html` — Sandboxed webview for the sidebar panel
+- `panel.html` — Sandboxed webview for the main page
 - `settings.html` — Sandboxed webview for the settings page
-- `icon.svg` — Activity bar icon (mustache face)
+- `icon.svg` — Sidebar nav icon (mustache face)
 - `package.json` — For npm publishing
 
 ## License
