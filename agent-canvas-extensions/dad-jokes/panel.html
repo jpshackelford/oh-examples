@@ -109,12 +109,12 @@
         transform: translateY(0);
       }
 
-      .reveal-btn {
+      /* Primary button - matches agent-canvas brand button style */
+      .btn-primary {
         display: block;
         width: 100%;
         height: 36px;
         padding: 0 16px;
-        margin-top: 12px;
         border: none;
         border-radius: var(--oh-radius);
         background: var(--oh-color-primary);
@@ -125,27 +125,36 @@
         transition: opacity 75ms;
       }
 
-      .reveal-btn:hover {
+      .btn-primary:hover {
         opacity: 0.9;
       }
 
-      .next-btn {
+      /* Secondary button - subtle background with border */
+      .btn-secondary {
         display: block;
         width: 100%;
         height: 36px;
         padding: 0 16px;
-        border: none;
+        border: 1px solid var(--oh-border);
         border-radius: var(--oh-radius);
-        background: var(--oh-color-success);
-        color: var(--cool-grey-950);
+        background: var(--oh-surface);
+        color: var(--oh-foreground);
         font-size: 14px;
         font-weight: 500;
         cursor: pointer;
-        transition: opacity 75ms;
+        transition: background-color 75ms;
       }
 
-      .next-btn:hover {
-        opacity: 0.9;
+      .btn-secondary:hover {
+        background: var(--oh-surface-raised);
+      }
+
+      .reveal-btn {
+        margin-top: 12px;
+      }
+
+      .next-btn {
+        margin-top: 12px;
       }
 
       .groan-meter {
@@ -217,14 +226,14 @@
     <div class="joke-card">
       <div class="setup" id="setup">Loading joke...</div>
       <div class="punchline" id="punchline"></div>
-      <button class="reveal-btn" id="reveal">🥁 Reveal Punchline</button>
+      <button class="btn-primary reveal-btn" id="reveal">🥁 Reveal Punchline</button>
       <div class="rating" id="rating" style="display: none;">
         <button id="groan">😩 Groan</button>
         <button id="laugh">😂 LOL</button>
       </div>
     </div>
 
-    <button class="next-btn" id="next">👴 Tell me another one, Dad!</button>
+    <button class="btn-secondary next-btn" id="next">👴 Tell me another one, Dad!</button>
 
     <div class="groan-meter">
       <h3>Groan-O-Meter™</h3>
