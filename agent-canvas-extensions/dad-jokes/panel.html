@@ -8,142 +8,193 @@
     />
     <title>Dad Jokes</title>
     <style>
+      /*
+       * AgentCanvas Design Tokens (Cool Grey Palette)
+       */
+      :root {
+        --cool-grey-50: #F7F9FC;
+        --cool-grey-100: #EEF2F7;
+        --cool-grey-200: #DCE3EE;
+        --cool-grey-300: #C3CDDC;
+        --cool-grey-400: #A3B0C4;
+        --cool-grey-500: #7E8A9E;
+        --cool-grey-600: #626D82;
+        --cool-grey-700: #4B5468;
+        --cool-grey-800: #383F50;
+        --cool-grey-900: #2C313F;
+        --cool-grey-925: #21252F;
+        --cool-grey-950: #0B0E14;
+
+        --oh-foreground: var(--cool-grey-100);
+        --oh-surface: var(--cool-grey-925);
+        --oh-border: var(--cool-grey-700);
+        --oh-border-subtle: var(--cool-grey-800);
+        --oh-text-secondary: var(--cool-grey-300);
+        --oh-muted: var(--cool-grey-400);
+        --oh-primary: #c9b974;
+        --oh-success: #a5e75e;
+        --oh-radius: 8px;
+      }
+
       * {
         box-sizing: border-box;
       }
+
       body {
         font-family: system-ui, -apple-system, sans-serif;
         margin: 0;
         padding: 16px;
-        color: #e5e7eb;
-        background: linear-gradient(135deg, #0b0f17 0%, #1a1f2e 100%);
+        color: var(--oh-foreground);
+        background: transparent;
         min-height: 100vh;
+        line-height: 1.5;
       }
+
       .header {
         text-align: center;
         margin-bottom: 20px;
       }
+
       .header h1 {
         margin: 0;
-        font-size: 24px;
+        font-size: 20px;
+        font-weight: 600;
+        color: #ffffff;
         display: flex;
         align-items: center;
         justify-content: center;
         gap: 8px;
       }
+
       .emoji {
-        font-size: 32px;
+        font-size: 24px;
       }
+
       .joke-card {
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 16px;
-      }
-      .setup {
-        font-size: 16px;
-        color: #9ca3af;
+        background: var(--cool-grey-925);
+        border: 1px solid var(--oh-border-subtle);
+        border-radius: var(--oh-radius);
+        padding: 16px;
         margin-bottom: 12px;
       }
+
+      .setup {
+        font-size: 14px;
+        color: var(--oh-text-secondary);
+        margin-bottom: 12px;
+      }
+
       .punchline {
-        font-size: 18px;
-        color: #fbbf24;
+        font-size: 16px;
+        color: var(--oh-primary);
         font-weight: 600;
         opacity: 0;
         transform: translateY(10px);
         transition: opacity 0.3s, transform 0.3s;
       }
+
       .punchline.revealed {
         opacity: 1;
         transform: translateY(0);
       }
+
       .reveal-btn {
         display: block;
         width: 100%;
-        padding: 10px 16px;
+        height: 36px;
+        padding: 0 16px;
         margin-top: 12px;
         border: none;
-        border-radius: 8px;
-        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-        color: white;
+        border-radius: var(--oh-radius);
+        background: var(--oh-primary);
+        color: var(--cool-grey-950);
         font-size: 14px;
         font-weight: 500;
         cursor: pointer;
-        transition: transform 0.2s, box-shadow 0.2s;
+        transition: opacity 75ms;
       }
+
       .reveal-btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+        opacity: 0.9;
       }
-      .reveal-btn:active {
-        transform: translateY(0);
-      }
+
       .next-btn {
         display: block;
         width: 100%;
-        padding: 12px 16px;
+        height: 36px;
+        padding: 0 16px;
         border: none;
-        border-radius: 8px;
-        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-        color: white;
-        font-size: 15px;
-        font-weight: 600;
+        border-radius: var(--oh-radius);
+        background: var(--oh-success);
+        color: var(--cool-grey-950);
+        font-size: 14px;
+        font-weight: 500;
         cursor: pointer;
-        transition: transform 0.2s, box-shadow 0.2s;
+        transition: opacity 75ms;
       }
+
       .next-btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+        opacity: 0.9;
       }
+
       .groan-meter {
-        margin-top: 20px;
+        margin-top: 16px;
         padding: 16px;
-        background: rgba(255, 255, 255, 0.03);
-        border-radius: 8px;
+        background: var(--cool-grey-925);
+        border: 1px solid var(--oh-border-subtle);
+        border-radius: var(--oh-radius);
         text-align: center;
       }
+
       .groan-meter h3 {
         margin: 0 0 8px 0;
-        font-size: 14px;
-        color: #9ca3af;
+        font-size: 13px;
+        color: var(--oh-muted);
       }
+
       .groan-count {
-        font-size: 36px;
-        font-weight: bold;
-        color: #f59e0b;
+        font-size: 32px;
+        font-weight: 600;
+        color: var(--oh-primary);
       }
+
       .groan-label {
         font-size: 12px;
-        color: #6b7280;
+        color: var(--oh-muted);
         margin-top: 4px;
       }
+
       .convo-status {
-        margin-top: 16px;
-        padding: 12px;
-        background: rgba(99, 102, 241, 0.1);
-        border-radius: 8px;
-        font-size: 13px;
-        color: #a5b4fc;
+        margin-top: 12px;
+        padding: 10px 12px;
+        background: var(--cool-grey-925);
+        border: 1px solid var(--oh-border-subtle);
+        border-radius: var(--oh-radius);
+        font-size: 12px;
+        color: var(--oh-text-secondary);
       }
+
       .rating {
         display: flex;
         justify-content: center;
         gap: 8px;
         margin-top: 12px;
       }
+
       .rating button {
-        padding: 8px 16px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        border-radius: 20px;
+        height: 32px;
+        padding: 0 14px;
+        border: 1px solid var(--oh-border);
+        border-radius: var(--oh-radius);
         background: transparent;
-        color: #e5e7eb;
+        color: var(--oh-foreground);
+        font-size: 13px;
         cursor: pointer;
-        transition: all 0.2s;
+        transition: background-color 75ms;
       }
+
       .rating button:hover {
-        background: rgba(255, 255, 255, 0.1);
-        transform: scale(1.1);
+        background: var(--cool-grey-800);
       }
     </style>
   </head>
