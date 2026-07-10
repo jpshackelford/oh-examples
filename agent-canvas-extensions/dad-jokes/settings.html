@@ -9,38 +9,37 @@
     <title>Dad Jokes Settings</title>
     <style>
       /*
-       * AgentCanvas Design Tokens (Cool Grey Palette)
-       * These match the tokens defined in agent-canvas/hero.ts and tailwind.css
+       * AgentCanvas Theme Integration
+       * 
+       * Theme variables (--oh-*, --cool-grey-*) are injected by the host via postMessage.
+       * Extensions should use these variables for styling to match the AgentCanvas theme.
+       * 
+       * Fallback values are provided for local development/preview outside AgentCanvas.
        */
       :root {
-        /* Cool Grey Scale */
+        /* Fallback values for development - these will be overridden by host theme */
         --cool-grey-50: #F7F9FC;
         --cool-grey-100: #EEF2F7;
-        --cool-grey-200: #DCE3EE;
         --cool-grey-300: #C3CDDC;
         --cool-grey-400: #A3B0C4;
         --cool-grey-500: #7E8A9E;
-        --cool-grey-600: #626D82;
         --cool-grey-700: #4B5468;
         --cool-grey-800: #383F50;
         --cool-grey-900: #2C313F;
         --cool-grey-925: #21252F;
         --cool-grey-950: #0B0E14;
-        --cool-grey-975: #05070A;
-
-        /* Semantic Colors */
-        --oh-background: var(--cool-grey-950);
-        --oh-foreground: var(--cool-grey-100);
-        --oh-surface: var(--cool-grey-925);
-        --oh-surface-raised: var(--cool-grey-900);
-        --oh-border: var(--cool-grey-700);
-        --oh-border-subtle: var(--cool-grey-800);
-        --oh-text-secondary: var(--cool-grey-300);
-        --oh-text-dim: var(--cool-grey-500);
-        --oh-muted: var(--cool-grey-400);
-        --oh-primary: #c9b974;
-        --oh-success: #a5e75e;
-        --oh-danger: #e76a5e;
+        --oh-background: #0B0E14;
+        --oh-foreground: #EEF2F7;
+        --oh-surface: #21252F;
+        --oh-surface-raised: #2C313F;
+        --oh-border: #4B5468;
+        --oh-border-subtle: #383F50;
+        --oh-text-secondary: #C3CDDC;
+        --oh-text-dim: #7E8A9E;
+        --oh-muted: #A3B0C4;
+        --oh-color-primary: #c9b974;
+        --oh-color-success: #a5e75e;
+        --oh-color-danger: #e76a5e;
         --oh-radius: 8px;
       }
 
@@ -49,9 +48,8 @@
       }
 
       html, body {
-        /* Use the actual AgentCanvas base color instead of transparent
-           since sandboxed iframes don't always support transparency */
-        background-color: #21252F; /* --cool-grey-925 / --oh-surface */
+        /* Use theme variable - will be set by host */
+        background-color: var(--oh-background);
       }
 
       body {
@@ -323,6 +321,28 @@
         var parentWindow = window.parent;
         var nextId = 1;
         var pending = {};
+
+        // --- Theme support ---
+        // Listen for theme variables from the host and apply them to :root
+        // This allows the extension to automatically match AgentCanvas colors
+        function enableHostTheme() {
+          window.addEventListener("message", function (event) {
+            if (event.source !== parentWindow) return;
+            var msg = event.data;
+            if (msg && msg.type === "agentCanvas:theme" && msg.variables) {
+              var root = document.documentElement;
+              for (var name in msg.variables) {
+                if (msg.variables.hasOwnProperty(name)) {
+                  root.style.setProperty(name, msg.variables[name]);
+                }
+              }
+            }
+          });
+        }
+
+        // Enable theme injection from host
+        enableHostTheme();
+        // --- End theme support ---
 
         // --- Auto-resize support ---
         // Reports the current content height to the host so the iframe can grow
