@@ -184,16 +184,6 @@
         margin-top: 4px;
       }
 
-      .convo-status {
-        margin-top: 12px;
-        padding: 10px 12px;
-        background: var(--cool-grey-925);
-        border: 1px solid var(--oh-border-subtle);
-        border-radius: var(--oh-radius);
-        font-size: 12px;
-        color: var(--oh-text-secondary);
-      }
-
       .rating {
         display: flex;
         justify-content: center;
@@ -240,8 +230,6 @@
       <div class="groan-count" id="groanCount">0</div>
       <div class="groan-label">total groans induced</div>
     </div>
-
-    <div class="convo-status" id="convoStatus">Loading conversation...</div>
 
     <script>
       // Joke database (same as worker, for offline panel use)
@@ -350,7 +338,6 @@
         var ratingDiv = document.getElementById("rating");
         var nextBtn = document.getElementById("next");
         var groanCountEl = document.getElementById("groanCount");
-        var convoStatusEl = document.getElementById("convoStatus");
 
         function getRandomJoke() {
           return DAD_JOKES[Math.floor(Math.random() * DAD_JOKES.length)];
@@ -391,17 +378,6 @@
             groanCount = saved;
             groanCountEl.textContent = groanCount;
           }
-        });
-
-        // Load conversation info
-        api.conversation.getActive().then(function (convo) {
-          if (convo) {
-            convoStatusEl.textContent = "🎯 Currently annoying: " + (convo.title || convo.id);
-          } else {
-            convoStatusEl.textContent = "💤 No active conversation to annoy... yet.";
-          }
-        }).catch(function () {
-          convoStatusEl.textContent = "🤷 Couldn't check conversation status.";
         });
 
         // Event handlers
