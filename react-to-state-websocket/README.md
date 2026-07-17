@@ -158,6 +158,18 @@ export LLM_API_KEY=...
 python watch_direct.py --llm-model "gpt-4o-mini" --message "Say hello, then stop."
 ```
 
+The default `gpt-4o-mini` expects a real OpenAI key. If you route through a proxy
+(e.g. a LiteLLM endpoint), also pass `--llm-base-url` and a model name your proxy
+recognizes:
+
+```bash
+export LLM_API_KEY=...   # your proxy key
+python watch_direct.py \
+  --llm-model "litellm_proxy/anthropic/claude-haiku-4-5" \
+  --llm-base-url "https://your-proxy.example.com" \
+  --message "Say hello, then stop."
+```
+
 ### Flags
 
 Shared by both scripts:
