@@ -10,6 +10,7 @@ A collection of example code for working with the OpenHands API.
 | [conversation-tags](./conversation-tags/) | Attach arbitrary key-value **metadata** to a conversation via `tags` (e.g. an external `environment_url`) and read it back from `AppConversation.tags` |
 | [per-conversation-secrets](./per-conversation-secrets/) | Inject per-conversation secrets via REST API — both as bash env vars and to template an **MCP server** config (`.mcp.json`) bundled in a plugin |
 | [start-sandbox](./start-sandbox/) | Start a sandbox (no conversation) and run commands via the agent-server REST API |
+| [react-to-state-webhooks](./react-to-state-webhooks/) | **Local-only:** react to conversation state changes via **outbound webhooks** from a locally-run agent-server (event-driven, no polling). Explains why Cloud sandboxes can't do this (`deferred_init=False`) |
 | [test-mcp-config](./test-mcp-config/) | Validate **MCP server configs** (connection/auth) against a sandbox's agent-server via `POST /api/mcp/test`, before using them in a conversation |
 | [clone-and-attach](./clone-and-attach/) | Clone a repo + run `.openhands/setup.sh` in a sandbox, then attach a conversation to it |
 | [upload-skills](./upload-skills/) | Upload a local agent-skills directory into a sandbox, then start a conversation that uses them |
