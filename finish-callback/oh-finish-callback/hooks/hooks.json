@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "#!/bin/sh\n# Stop hook: notify an external URL when the agent reaches a terminal state.\n#\n# This is the human-readable / locally-testable source of truth. The SAME\n# script is embedded inline in ../hooks/hooks.json (as the \"command\" string),\n# because that inline copy is what actually runs: when hooks execute as part of\n# a plugin, the working directory is the agent's workspace (not this plugin\n# directory) and there is no plugin-root path variable, so a relative path to\n# this file would not resolve. If you edit this file, re-embed it (see README).\n#\n# Contract:\n#   - stdin  : the HookEvent JSON (drained but not parsed; POSIX sh has no jq).\n#   - env    : OPENHANDS_SESSION_ID, OPENHANDS_PROJECT_DIR (set by the runner);\n#              OH_CALLBACK_URL / OH_CALLBACK_TOKEN / OH_CALLBACK_PAYLOAD (yours,\n#              supplied as conversation secrets \u2014 never hard-coded here).\n#   - exit 0 : always. This hook only NOTIFIES; it never blocks the agent from\n#              finishing. (Exit 2 would block; we deliberately don't.)\n\n# Drain stdin so the writer never sees a broken pipe.\ncat >/dev/null 2>&1\n\n# Where to POST. If unset, this plugin is a harmless no-op.\nurl=\"${OH_CALLBACK_URL:-}\"\nif [ -z \"$url\" ]; then\n  exit 0\nfi\n\n# Optional shared secret, echoed in a header the receiver can verify.\ntoken=\"${OH_CALLBACK_TOKEN:-}\"\n\n# Optional caller-supplied payload file. When present, its raw contents become\n# the POST body (\"attach the payload's contents to the request\"). Otherwise we\n# send a small JSON envelope describing the finish. No customer-identifying\n# information is baked into this script \u2014 it all comes from your env/secrets.\npayload_file=\"${OH_CALLBACK_PAYLOAD:-}\"\n\ntmp=\"$(mktemp 2>/dev/null || echo \"/tmp/oh_finish_cb.$$\")\"\n\nif [ -n \"$payload_file\" ] && [ -f \"$payload_file\" ]; then\n  body_file=\"$payload_file\"\nelse\n  sid=\"${OPENHANDS_SESSION_ID:-}\"\n  ts=\"$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo \"\")\"\n  printf '{\"status\":\"finished\",\"session_id\":\"%s\",\"finished_at\":\"%s\"}' \\\n    \"$sid\" \"$ts\" >\"$tmp\"\n  body_file=\"$tmp\"\nfi\n\n# Fire the callback. Best-effort: short timeout, failures are swallowed so a\n# down receiver never stalls or breaks the agent. Your polling loop remains the\n# reliability net.\nif command -v curl >/dev/null 2>&1; then\n  if [ -n \"$token\" ]; then\n    curl -s -m 10 -X POST \"$url\" \\\n      -H \"Content-Type: application/json\" \\\n      -H \"X-Callback-Token: $token\" \\\n      --data-binary @\"$body_file\" >/dev/null 2>&1 || true\n  else\n    curl -s -m 10 -X POST \"$url\" \\\n      -H \"Content-Type: application/json\" \\\n      --data-binary @\"$body_file\" >/dev/null 2>&1 || true\n  fi\nfi\n\nrm -f \"$tmp\" 2>/dev/null || true\nexit 0\n",
+            "timeout": 15,
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}

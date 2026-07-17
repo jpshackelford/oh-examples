@@ -1,0 +1,5 @@
+{
+  "source": "openhands",
+  "note": "Replace this file's contents with whatever your downstream system expects. When OH_CALLBACK_PAYLOAD points at a file, its raw bytes become the POST body verbatim.",
+  "correlation_id": "replace-me"
+}
