@@ -6,21 +6,25 @@ end-to-end and watches conversation state in real time over the V1 WebSocket:
 
     1. Start the agent-server container from the software-agent-sdk image and
        wait for GET /health to return ok.
-    2. Connect to the WebSocket at ``/sockets/events/{conversation_id}`` and
-       authenticate with the session key (query parameter).
-    3. Create a conversation (POST /api/conversations) with a small
-       ``initial_message`` and run it.
+    2. Create a conversation (POST /api/conversations) with a small
+       ``initial_message`` and run it. The response carries the conversation id
+       needed to build the WebSocket URL.
+    3. Connect to the WebSocket at ``/sockets/events/{conversation_id}``,
+       authenticate with the session key (query parameter), and pass
+       ``resend_mode=all`` so any events already emitted between create and
+       connect are replayed (no missed ``running``/terminal events).
     4. Read events off the socket as they happen. Announce the terminal state
        (finished / error / stuck) the moment it arrives, then exit.
        This script NEVER polls conversation state over REST — the only state
        signal is what arrives on the WebSocket.
     5. Tear the container down.
 
-Why this and not the webhook example? The agent-server ``WebhookSpec`` (see
-``../react-to-state-webhooks``) is *push from the server*, which needs the
-server to be configured with your receiver's URL — impossible on OpenHands
-Cloud, where you cannot inject webhook config into a running sandbox. The
-WebSocket is *pull-connected by the client*, so it also works against a Cloud
+Why this and not the webhook example? The agent-server ``WebhookSpec`` (see the
+proposed react-to-state-webhooks example,
+https://github.com/jpshackelford/oh-examples/pull/22) is *push from the server*,
+which needs the server to be configured with your receiver's URL — impossible on
+OpenHands Cloud, where you cannot inject webhook config into a running sandbox.
+The WebSocket is *pull-connected by the client*, so it also works against a Cloud
 sandbox's agent-server URL (use ``wss://…`` and the sandbox session key). This
 demo runs locally so it is fully reproducible without a Cloud account.
 

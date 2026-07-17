@@ -38,11 +38,13 @@ Returns a `ServerInfo` object. The fields this example reads:
 |-------|---------|
 | `idle_time` | Seconds since the last activity (file ops, agent steps, ACP heartbeat). Drops while the agent works, climbs once it stops. |
 | `uptime` | Seconds since the server started. |
-| `runtime_idle_timeout_seconds` | The platform's own reap threshold — how long `runtime-api` lets a sandbox sit idle before pausing/stopping it (typically 1200–1800s). |
+| `runtime_idle_timeout_seconds` | The platform's own reap threshold — how long `runtime-api` lets a sandbox sit idle before pausing/stopping it (typically 1200–1800s). **Only populated on the managed platform; it is `null` on a plain local agent-server like the one this demo starts.** |
 
-`runtime-api` reaps a sandbox roughly when
-`idle_time >= runtime_idle_timeout_seconds`. This demo uses a much smaller
-threshold (`--idle-threshold`, default 15s) so you can watch it fire quickly.
+On the managed platform, `runtime-api` reaps a sandbox roughly when
+`idle_time >= runtime_idle_timeout_seconds`. Locally that field is `null` (there
+is no reaper), so this demo ignores it and instead uses its own much smaller
+threshold (`--idle-threshold`, default 15s) so you can watch idle detection fire
+quickly against the same `idle_time` signal.
 
 ## `idle_time` vs. `execution_status`
 
@@ -53,7 +55,7 @@ They answer different questions — pick per your need:
 | **Question** | "Has the *workspace* gone quiet?" | "Is *this conversation* done?" |
 | **Granularity** | Server-wide heartbeat | Per-conversation state machine |
 | **Distinguishes finished / error / stuck?** | No | Yes (`is_terminal()`) |
-| **How to consume** | Poll `GET /server_info` | Push via [WebSocket](../websocket-events/) / [webhook](../react-to-state-webhooks/) |
+| **How to consume** | Poll `GET /server_info` | Push via [WebSocket](../websocket-events/) / [webhook](https://github.com/jpshackelford/oh-examples/pull/22) |
 | **Used by the platform for** | Reaping idle sandboxes | Reporting run completion |
 
 Use `idle_time` when you just want "nothing is happening anymore" without
@@ -108,18 +110,24 @@ python idle_poll.py
 ## What it prints
 
 ```
-container: 13ee756cf2cd
+container: 049e77ec611b
 health: ok
-baseline /server_info: idle_time=0s runtime_idle_timeout_seconds=1800.0
-conversation: 603e4620-df37-414d-af42-296dd562bfae
+baseline /server_info: idle_time=1.0s runtime_idle_timeout_seconds=None
+conversation: b9c0b61d-a924-47c1-ae1b-a79035967925
 
 polling /server_info.idle_time every 3.0s; declaring idle at > 15.0s
 
-  idle_time=    1s  uptime=8s
-  idle_time=    0s  uptime=11s      # drops while the agent is active
-  idle_time=    4s  uptime=14s
-  idle_time=   10s  uptime=20s      # climbing after the agent stops
-  idle_time=   16s  uptime=26s
+  idle_time=  0.0s  uptime=1.0s
+  idle_time=  3.0s  uptime=4.0s
+  idle_time=  6.0s  uptime=7.0s     # climbing while nothing runs yet
+  idle_time=  9.0s  uptime=10.0s
+  idle_time= 12.0s  uptime=13.0s
+  idle_time=  1.0s  uptime=16.0s    # drops when the agent acts
+  idle_time=  4.0s  uptime=19.0s
+  idle_time=  7.0s  uptime=22.0s
+  idle_time= 10.0s  uptime=25.0s
+  idle_time= 13.0s  uptime=28.0s
+  idle_time= 16.0s  uptime=31.0s    # climbs again after the agent stops
 
 agent idle: idle_time exceeded 15.0s — the workspace has gone quiet.
 (this is the same signal runtime-api uses to reap sandboxes; for a
@@ -145,7 +153,10 @@ removed container oh-idle-demo
 
 - [`websocket-events`](../websocket-events/) — authoritative per-conversation
   terminal state over the WebSocket (push)
-- [`react-to-state-webhooks`](../react-to-state-webhooks/) — state changes pushed
-  from the server via `WebhookSpec` (local-only)
+- [`react-to-state-websocket`](../react-to-state-websocket/) — react to *every*
+  `execution_status` transition over the WebSocket, on the Cloud substrate
+- [`react-to-state-webhooks`](https://github.com/jpshackelford/oh-examples/pull/22)
+  (proposed) — state changes pushed from the server via `WebhookSpec`
+  (local-only)
 - [`start-sandbox`](../start-sandbox/) — how to reach a Cloud sandbox's
   agent-server URL + session key

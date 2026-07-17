@@ -22,9 +22,11 @@ Flow (LOCALLY-RUN agent-server in Docker):
 happened lately?" heartbeat — it does NOT distinguish finished / error / stuck,
 and it is what the platform itself uses for reaping. For an authoritative,
 per-conversation terminal signal use ``execution_status`` (see
-``../websocket-events`` for the push version and ``../react-to-state-webhooks``
-for the webhook version). idle_time shines when you just want "the workspace has
-gone quiet" without subscribing to any conversation.
+``../websocket-events`` for the push version and the proposed
+react-to-state-webhooks example,
+https://github.com/jpshackelford/oh-examples/pull/22, for the webhook version).
+idle_time shines when you just want "the workspace has gone quiet" without
+subscribing to any conversation.
 
 Prerequisites: Docker running. Install deps::
 

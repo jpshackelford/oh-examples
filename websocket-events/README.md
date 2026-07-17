@@ -7,9 +7,10 @@ streams every event (including state changes) over
 terminal `execution_status`, announces it, and exits.
 
 > **Push, and Cloud-friendly.** The agent-server `WebhookSpec`
-> (see [`react-to-state-webhooks`](../react-to-state-webhooks/)) is *push from
-> the server* and must be configured with your receiver URL — impossible on
-> OpenHands Cloud, where you cannot inject webhook config into a running sandbox.
+> (see the proposed [`react-to-state-webhooks`](https://github.com/jpshackelford/oh-examples/pull/22) example)
+> is *push from the server* and must be configured with your receiver URL —
+> impossible on OpenHands Cloud, where you cannot inject webhook config into a
+> running sandbox.
 > The WebSocket is *pull-connected by the client*, so the exact same client code
 > also works against a **Cloud** sandbox's agent-server URL (use `wss://…` and
 > the per-sandbox session key from the sandbox-create call — see
@@ -69,10 +70,11 @@ starts, so treating it as terminal would fire a false positive.
       |-- docker run -------------------->|
       |-- GET /health (poll SERVER only)  |
       |<-- ok -----------------------------|
+      |-- POST /api/conversations (run:true) -->|   # returns {id}; agent starts
+      |<-- {id} ---------------------------|
       |-- WS connect /sockets/events/{id}?session_api_key=…&resend_mode=all -->|
-      |<== event stream (state + events) ==|
-      |-- POST /api/conversations (run:true) -->|
       |                          agent runs, emits events over WS
+      |<== event stream (resend_mode=all replays anything already emitted) ==|
       |<== ConversationStateUpdateEvent execution_status=running ==|
       |<== ConversationStateUpdateEvent execution_status=finished ==|
       |   *** terminal state detected — no REST polling of state ***
@@ -151,8 +153,15 @@ removed container oh-ws-demo
 
 ## Related
 
-- [`react-to-state-webhooks`](../react-to-state-webhooks/) — the push-from-server
-  webhook version (local-only; batching/retries/backpressure)
+- [`react-to-state-websocket`](../react-to-state-websocket/) — the same V1
+  WebSocket, but on the **Cloud** substrate and framed as "react to *every*
+  `execution_status` transition." Two ways to create the conversation
+  (Cloud-attach vs. agent-direct). Reach for it when you want the Cloud flow or
+  to follow all transitions; reach for **this** example for the minimal,
+  local, reproducible "wait for the *terminal* state and exit."
+- [`react-to-state-webhooks`](https://github.com/jpshackelford/oh-examples/pull/22)
+  (proposed) — the push-from-server webhook version (local-only;
+  batching/retries/backpressure)
 - [`server-info-idle`](../server-info-idle/) — the coarse pull version: poll
   `/server_info.idle_time` for "workspace has gone quiet"
 - [`finish-callback`](../finish-callback/) — a Stop-hook callback on `FINISHED`
