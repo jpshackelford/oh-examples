@@ -15,6 +15,7 @@ A collection of example code for working with the OpenHands API.
 | [upload-skills](./upload-skills/) | Upload a local agent-skills directory into a sandbox, then start a conversation that uses them |
 | [load-plugin](./load-plugin/) | Minimal: start a conversation with a plugin pre-loaded via the REST API |
 | [launch-plugin-badge](./launch-plugin-badge/) | Build a no-code `/launch` link, HTML button, or README badge that loads a plugin |
+| [finish-callback](./finish-callback/) | Notify an external URL the moment a conversation finishes with a **Stop hook** (push instead of poll); includes a local receiver server to prove the end-to-end flow |
 | [command-blacklist](./command-blacklist/) | Block dangerous shell commands with PreToolUse hooks (blacklist approach with snarky messages) |
 | [command-whitelist](./command-whitelist/) | Only allow approved shell commands with PreToolUse hooks (whitelist approach for strict security) |
 | [workspace-isolation](./workspace-isolation/) | **Advanced:** Enforce directory boundaries with hooks - prevent agents from navigating/writing outside assigned workspace (based on jpshackelford/lxa) |

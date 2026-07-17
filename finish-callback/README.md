@@ -1,0 +1,257 @@
+# Finish Callback with a Stop Hook
+
+A self-contained example showing how to **notify an external URL the moment a
+conversation finishes**, using a **Stop hook** — instead of finding out only by
+polling. When the agent reaches a terminal state, the hook `POST`s to a URL you
+control, optionally attaching a payload file's contents.
+
+This is the "push instead of poll" pattern: keep your existing polling loop as a
+safety net, but let the callback wake you up immediately in the common case.
+
+[![Load Finish Callback](https://img.shields.io/badge/Load%20Finish%20Callback-blue)](https://app.all-hands.dev/launch?plugins=W3sic291cmNlIjogImdpdGh1YjpqcHNoYWNrZWxmb3JkL29oLWV4YW1wbGVzIiwgInJlZiI6ICJtYWluIiwgInJlcG9fcGF0aCI6ICJmaW5pc2gtY2FsbGJhY2svb2gtZmluaXNoLWNhbGxiYWNrIn1d&message=Say%20hello%20and%20then%20finish.)
+
+> **About the badge:** clicking it loads the plugin into a fresh conversation,
+> but the `/launch` route only carries `plugins` + `message` — **not secrets**.
+> Without `OH_CALLBACK_URL` the hook is a deliberate no-op, so the badge is a
+> "see the plugin load" demo. To actually receive a callback you must supply the
+> secrets, which means the API path below (`load_finish_callback.py`) or your own
+> call to `POST /api/v1/app-conversations` with a `secrets` field.
+
+> **No customer information lives in this plugin.** The callback URL, an optional
+> shared-secret token, and an optional payload file path all come from
+> **conversation secrets** at start time. The repo ships only a local test
+> receiver so you can prove the end-to-end flow against your own machine.
+
+## What's in the Box
+
+```
+finish-callback/
+├── callback_receiver.py          # tiny stdlib web server (the demo receiver)
+├── load_finish_callback.py       # turnkey: start a conversation + pass the secrets
+├── example-payload.json          # optional POST body you can point the hook at
+└── oh-finish-callback/           # the plugin (load this into a conversation)
+    ├── .claude-plugin/
+    │   └── plugin.json           # plugin manifest
+    ├── hooks/
+    │   ├── hooks.json            # the Stop hook (this is what actually runs)
+    │   └── on_stop.sh            # readable source of the inline hook script
+    └── skills/
+        └── oh-finish-callback/
+            └── SKILL.md          # docs (auto-loaded)
+```
+
+## How It Works
+
+```
+Agent finishes its work → conversation reaches FINISHED
+  ↓
+Stop hook fires (before the stop is finalized)
+  ├─ reads OH_CALLBACK_URL / OH_CALLBACK_TOKEN / OH_CALLBACK_PAYLOAD from env
+  ├─ builds the body: your payload file, or a small default JSON envelope
+  └─ POSTs to your URL (async, best-effort, short timeout)
+  ↓
+Agent stops normally (the hook always exits 0 — it never blocks)
+  ↓
+Your receiver gets the POST and reacts immediately
+```
+
+## Configuration
+
+Everything is supplied as **conversation secrets** — nothing is hard-coded:
+
+| Variable | Required | Meaning |
+|----------|----------|---------|
+| `OH_CALLBACK_URL` | Yes | Where to `POST`. If unset, the hook is a harmless no-op. |
+| `OH_CALLBACK_TOKEN` | No | Sent as the `X-Callback-Token` header so your receiver can verify the caller. |
+| `OH_CALLBACK_PAYLOAD` | No | Path (inside the sandbox) to a JSON file whose raw contents become the POST body. Omit it to send the default envelope. |
+
+Default body when no payload file is given:
+
+```json
+{"status": "finished", "session_id": "<session>", "finished_at": "<UTC ISO-8601>"}
+```
+
+## Try It End-to-End
+
+You need two things reachable from the sandbox: a **running receiver** and a
+**public URL** that forwards to it. The receiver is stdlib-only; the loader
+needs `requests`:
+
+```bash
+pip install requests
+```
+
+You'll also need a Cloud API key (`export OH_API_KEY="sk-oh-..."`).
+
+### 1. Start the receiver
+
+```bash
+cd finish-callback
+python callback_receiver.py --port 8000
+# add --token s3cr3t to require the X-Callback-Token header
+```
+
+It prints every POST it receives (pretty-printed JSON) and replies `204`.
+
+### 2. Expose it to the internet
+
+The sandbox runs in the cloud, so it needs a public URL to reach your laptop.
+Use any tunnel, e.g.:
+
+```bash
+# examples — pick whichever you have
+cloudflared tunnel --url http://localhost:8000
+ngrok http 8000
+```
+
+Note the public `https://…` URL it gives you. That's your `OH_CALLBACK_URL`.
+
+### 3. Start a conversation with the plugin loaded
+
+Use the bundled turnkey helper. It loads the plugin **and** passes the callback
+settings as conversation secrets, so the Stop hook picks them up as environment
+variables:
+
+```bash
+cd finish-callback
+export OH_API_KEY="sk-oh-..."          # Cloud API key
+python load_finish_callback.py \
+  --callback-url "https://your-tunnel.example/oh_finish" \
+  --callback-token "s3cr3t"
+
+# Expected: when the agent finishes, your receiver prints a POST like:
+#   {"status": "finished", "session_id": "...", "finished_at": "..."}
+```
+
+To send your own body instead of the default envelope, add
+`--callback-payload "/path/in/sandbox/body.json"` (the path is resolved inside
+the sandbox, not on your laptop).
+
+**Prefer the generic loader?** [`load-plugin`](../load-plugin/) does the same
+thing with `--secret` flags:
+
+```bash
+cd ../load-plugin
+python load_plugin.py \
+  --repo-path finish-callback/oh-finish-callback \
+  --message "Say hello and then finish." \
+  --secret OH_CALLBACK_URL="https://your-tunnel.example/oh_finish" \
+  --secret OH_CALLBACK_TOKEN="s3cr3t"
+```
+
+> **Heads-up:** the callback fires on **every** transition to `FINISHED` — so it
+> also covers follow-up messages you send later, not just the first run.
+
+## Verify the Hook Locally (no sandbox needed)
+
+You can exercise the exact hook script against a local receiver in one shell:
+
+```bash
+cd finish-callback
+python callback_receiver.py --port 8000 &          # start receiver
+
+echo '{"event_type":"Stop"}' \
+  | OPENHANDS_SESSION_ID="local-test" \
+    OH_CALLBACK_URL="http://127.0.0.1:8000/oh_finish" \
+    sh oh-finish-callback/hooks/on_stop.sh          # run the hook
+
+# The receiver prints the POST it just got.
+```
+
+## The Hook
+
+The magic is in [`hooks/hooks.json`](./oh-finish-callback/hooks/hooks.json):
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat >/dev/null; ... curl -s -m 10 -X POST \"$OH_CALLBACK_URL\" ...; exit 0",
+            "timeout": 15,
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**How it works:**
+
+1. **`Stop`** — runs when the agent tries to finish (the terminal-state moment).
+2. **`matcher: "*"`** — Stop hooks aren't tool-specific, so match everything.
+3. **`type: "command"`** — the `command` is a POSIX-sh script run via `/bin/sh -c`.
+4. **`async: true`** — fire-and-forget, so the callback never delays finishing.
+5. **Exit codes:** `0` = allow the agent to finish (this hook always does);
+   `2` would *block* finishing (we deliberately never do that).
+
+The script reads its config from the environment, builds the body, and `curl`s
+your URL with a short timeout, swallowing errors.
+
+> **Why inline (not a reference to the bundled `on_stop.sh`)?** When hooks run as
+> a **plugin**, they execute with the working directory set to the agent's
+> workspace (not the plugin directory), and there is no plugin-root path
+> variable — so a relative path like `hooks/on_stop.sh` won't resolve.
+> [`on_stop.sh`](./oh-finish-callback/hooks/on_stop.sh) is kept as the readable,
+> locally-testable **source of truth**; the identical script is embedded inline
+> in `hooks.json`, which is the copy that actually runs. If you edit the script,
+> re-embed it:
+>
+> ```bash
+> python - <<'PY'
+> import json
+> s = open("oh-finish-callback/hooks/on_stop.sh").read()
+> cfg = {"hooks": {"Stop": [{"matcher": "*", "hooks": [
+>     {"type": "command", "command": s, "timeout": 15, "async": True}]}]}}
+> json.dump(cfg, open("oh-finish-callback/hooks/hooks.json", "w"), indent=2)
+> open("oh-finish-callback/hooks/hooks.json", "a").write("\n")
+> PY
+> ```
+
+## Reliability: callback + polling
+
+The callback is a **latency optimization, not a delivery guarantee**. It won't
+fire if:
+
+- the sandbox dies or the run errors out before reaching `FINISHED`,
+- the receiver is down or the URL is unreachable, or
+- the POST times out.
+
+So keep your polling loop as the **safety net** and treat the callback as the
+fast path. That's exactly the hybrid the pattern is designed for: react
+immediately when the callback arrives, fall back to polling when it doesn't.
+
+## Hook Types
+
+Hooks can intercept different lifecycle events:
+
+| Hook | When It Runs | Can Block? | Use Case |
+|------|--------------|------------|----------|
+| PreToolUse | Before tool execution | ✅ Yes (exit 2) | Command validation |
+| PostToolUse | After tool execution | ❌ No | Logging, metrics |
+| UserPromptSubmit | Before processing user message | ✅ Yes | Content filtering |
+| **Stop** | **When the agent tries to finish** | ✅ Yes | **Finish notification (this example)** |
+| SessionStart | When a conversation starts | ❌ No | Setup, logging |
+| SessionEnd | When a conversation ends | ❌ No | Cleanup |
+
+## Related
+
+- [OpenHands Hooks Guide](https://docs.openhands.dev/sdk/guides/hooks.md) — full hook documentation
+- [Plugin System](https://docs.openhands.dev/sdk/guides/plugins.md) — how plugins work
+- [`load-plugin`](../load-plugin/) — load this plugin (and pass secrets) via the REST API
+- [`command-blacklist`](../command-blacklist/) — the PreToolUse example this one is modeled on
+- [`launch-plugin-badge`](../launch-plugin-badge/) — turn a plugin into a no-code launch link
+- [`conversation-tags`](../conversation-tags/) — attach metadata (like an external URL) to a conversation
+
+## Real-World Use Cases
+
+- **Windmill / workflow engines** — get pinged when a run finishes instead of polling every few seconds
+- **CI pipelines** — kick off the next stage the moment the agent is done
+- **Dashboards / queues** — mark a job complete in real time
+- **Chat notifications** — post "run finished" to Slack/Teams from your own backend

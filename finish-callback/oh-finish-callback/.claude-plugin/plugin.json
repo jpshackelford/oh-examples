@@ -1,0 +1,14 @@
+{
+  "name": "oh-finish-callback",
+  "version": "1.0.0",
+  "description": "POST a notification to your own URL when a conversation reaches a terminal state, using a Stop hook. Lets you react immediately instead of only polling. The callback URL/token/payload come from conversation secrets — no customer info is baked into the plugin.",
+  "license": "MIT",
+  "keywords": ["hooks", "stop", "callback", "webhook", "notify", "example"],
+  "examples": [
+    {
+      "title": "Notify on finish",
+      "prompt": "Say hello and then finish.",
+      "expected_behavior": "When the agent finishes, the Stop hook POSTs a small JSON envelope to OH_CALLBACK_URL."
+    }
+  ]
+}
