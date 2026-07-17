@@ -36,8 +36,8 @@ Observe conversations and react to their state.
 | [conversation-metrics](./conversation-metrics/) | CLI tool to retrieve cost and token usage for conversations |
 | [conversation-tags](./conversation-tags/) | Attach arbitrary key-value **metadata** to a conversation via `tags` (e.g. an external `environment_url`) and read it back from `AppConversation.tags` |
 | [react-to-state-websocket](./react-to-state-websocket/) | React to conversation `execution_status` changes over the agent-server **WebSocket** (`/sockets/events/{id}`) instead of polling — two approaches (Cloud-attach vs. agent-direct) with trade-offs, plus in-sandbox hook alternatives |
-| [websocket-events](./websocket-events/) | Detect a conversation's **terminal `execution_status`** in real time over the agent-server **WebSocket** (`/sockets/events/{id}`) — push, no polling; the Cloud-friendly alternative to server-side webhooks |
-| [server-info-idle](./server-info-idle/) | Poll `GET /server_info.idle_time` — the **same idle signal `runtime-api` uses to reap sandboxes** — to detect when the workspace has gone quiet |
+| [watch-terminal-state](./watch-terminal-state/) | Deep dive on [react-to-state-websocket](./react-to-state-websocket/): detect a **confirmed terminal `execution_status`** over the WebSocket — handles both event shapes, treats `finished` as advisory (Stop-hook revertible), and uses log-safe first-message auth |
+| [server-info-idle](./server-info-idle/) | Poll `GET /server_info.idle_time` — the **same idle signal `runtime-api` uses to reap sandboxes** — to detect when the workspace has gone quiet (Cloud-first; `--local` fallback) |
 | [finish-callback](./finish-callback/) | Notify an external URL the moment a conversation finishes with a **Stop hook** (push instead of poll); includes a local receiver server to prove the end-to-end flow |
 
 ### Secrets & authentication

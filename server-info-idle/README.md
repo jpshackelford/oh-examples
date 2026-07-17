@@ -1,4 +1,4 @@
-# Detect an Idle Agent via `/server_info.idle_time` (the platform's own signal)
+# Detect an idle agent via `/server_info.idle_time` (the platform's own signal)
 
 Detect when an agent has gone quiet by polling the agent-server's built-in idle
 timer: `GET /server_info` reports `idle_time`, the seconds since the last
@@ -6,43 +6,41 @@ activity on the server. This is the **exact signal `runtime-api` polls** to
 decide when a sandbox is idle enough to pause/reap — this example uses the same
 signal for your own "has the workspace gone quiet?" check.
 
-> **Cloud-friendly.** `GET /server_info` is a plain read on the agent-server, so
-> the same code works against a **Cloud** sandbox's agent-server URL + session
-> key (see [`start-sandbox`](../start-sandbox/)) as well as the local Docker
-> server used here.
+On **Cloud** (the default here), the same response also carries
+`runtime_idle_timeout_seconds`, the platform's real reap threshold, so you can
+see `idle_time` climbing toward the very number the platform acts on.
 
 One file:
 
-- [`idle_poll.py`](./idle_poll.py) — starts a local agent-server in Docker,
-  creates + runs a conversation, then polls `/server_info` until `idle_time`
-  crosses a threshold and declares the agent idle.
+- [`idle_poll.py`](./idle_poll.py) — start a Cloud sandbox, attach a conversation
+  (no LLM key needed), then poll `/server_info` until `idle_time` crosses a
+  threshold and declare the agent idle. Pass `--local` to run against an
+  agent-server you start in Docker instead.
 
 ## APIs used
 
-### 1. Agent Server — started locally in Docker
+### Cloud app server — manages the sandbox lifecycle
 
-- Image: `ghcr.io/openhands/agent-server:latest-python` (listens on **8000**
-  inside the container).
-- Auth header: `X-Session-API-Key: <session key>` (seeded via the
-  `SESSION_API_KEY` env var; on Cloud it is the sandbox's `session_api_key`).
-- Endpoints:
-  - `GET  /health` — server readiness
-  - `GET  /server_info` — the idle timer (see below)
-  - `POST /api/conversations` — create + auto-run a conversation
+- Base URL: `https://app.all-hands.dev`, auth header `X-Session-API-Key: <OH_API_KEY>`.
+- `POST /api/v1/sandboxes` — start a sandbox
+- `GET  /api/v1/sandboxes?id=<id>` — poll until `RUNNING`
+- `POST /api/v1/app-conversations` — attach a conversation (returns a start task)
+- `GET  /api/v1/app-conversations/start-tasks?ids=<id>` — poll for the id
+- `DELETE /api/v1/sandboxes/{id}?sandbox_id=<id>` — clean up
 
-### 2. `GET /server_info`
+### Agent server — `GET /server_info`
 
-Returns a `ServerInfo` object. The fields this example reads:
+Read from the sandbox's `AGENT_SERVER` exposed URL with its `session_api_key`.
+Returns a `ServerInfo` object; the fields this example reads:
 
 | Field | Meaning |
 |-------|---------|
 | `idle_time` | Seconds since the last activity (file ops, agent steps, ACP heartbeat). Drops while the agent works, climbs once it stops. |
 | `uptime` | Seconds since the server started. |
-| `runtime_idle_timeout_seconds` | The platform's own reap threshold — how long `runtime-api` lets a sandbox sit idle before pausing/stopping it (typically 1200–1800s). **Only populated on the managed platform; it is `null` on a plain local agent-server like the one this demo starts.** |
+| `runtime_idle_timeout_seconds` | The platform's own reap threshold — how long `runtime-api` lets a sandbox sit idle before pausing/stopping it (e.g. `1200.0` on Cloud). **Populated on Cloud; `null` on a plain local agent-server, which has no reaper.** |
 
-On the managed platform, `runtime-api` reaps a sandbox roughly when
-`idle_time >= runtime_idle_timeout_seconds`. Locally that field is `null` (there
-is no reaper), so this demo ignores it and instead uses its own much smaller
+On Cloud, `runtime-api` reaps a sandbox roughly when
+`idle_time >= runtime_idle_timeout_seconds`. This demo uses a much smaller
 threshold (`--idle-threshold`, default 15s) so you can watch idle detection fire
 quickly against the same `idle_time` signal.
 
@@ -55,85 +53,109 @@ They answer different questions — pick per your need:
 | **Question** | "Has the *workspace* gone quiet?" | "Is *this conversation* done?" |
 | **Granularity** | Server-wide heartbeat | Per-conversation state machine |
 | **Distinguishes finished / error / stuck?** | No | Yes (`is_terminal()`) |
-| **How to consume** | Poll `GET /server_info` | Push via [WebSocket](../websocket-events/) / [webhook](https://github.com/jpshackelford/oh-examples/pull/22) |
+| **How to consume** | Poll `GET /server_info` | Push via [WebSocket](../watch-terminal-state/) / [webhook](https://github.com/jpshackelford/oh-examples/pull/22) |
 | **Used by the platform for** | Reaping idle sandboxes | Reporting run completion |
 
 Use `idle_time` when you just want "nothing is happening anymore" without
 subscribing to a conversation; use `execution_status` when you need an
 authoritative terminal signal.
 
-## The flow
+## The flow (Cloud)
 
 ```
-  idle_poll.py                     Docker: agent-server
-      |                                   |
-      |-- docker run -------------------->|
-      |-- GET /health ------------------->|
-      |<-- ok -----------------------------|
-      |-- GET /server_info (baseline) --->|  idle_time, runtime_idle_timeout_seconds
-      |-- POST /api/conversations (run:true) -->|
-      |                          agent runs (idle_time stays low)
-      |-- GET /server_info (loop) ------->|  idle_time climbing...
+  idle_poll.py                        Cloud app server / sandbox agent-server
+      |                                          |
+      |-- POST /api/v1/sandboxes --------------->|
+      |-- GET  /api/v1/sandboxes?id (until RUNNING)
+      |-- GET  <agent>/server_info (baseline) -->|  idle_time, runtime_idle_timeout_seconds
+      |-- POST /api/v1/app-conversations ------->|  attach (no LLM key); poll start-task
+      |-- GET  <agent>/server_info (loop) ------>|  idle_time climbing...
       |   ...until idle_time > threshold -> "agent idle"
-      |-- docker rm -f (teardown) -------->|
+      |-- DELETE /api/v1/sandboxes/{id} -------->|  clean up
 ```
 
 ## Run it
 
-Docker must be running.
-
 ```bash
+export OH_API_KEY=...        # your https://app.all-hands.dev API key
 pip install requests
-
-export LLM_API_KEY=...                     # required
-export LLM_MODEL=litellm_proxy/...         # required
-export LLM_BASE_URL=https://...            # optional (provider default if unset)
 
 python idle_poll.py
 ```
 
-`idle_poll.py` flags / env vars:
+No LLM key is required: attaching through the Cloud app server injects your
+account's configured LLM.
+
+### Flags
 
 | Flag | Env var | Default |
 |------|---------|---------|
-| `--llm-api-key` | `LLM_API_KEY` | — (required) |
-| `--llm-model` | `LLM_MODEL` | — (required) |
-| `--llm-base-url` | `LLM_BASE_URL` | none |
-| `--session-key` | `SESSION_API_KEY` | `local-demo-key` |
-| `--image` | `OH_AGENT_SERVER_IMAGE` | `ghcr.io/openhands/agent-server:latest-python` |
-| `--server-port` | `OH_SERVER_PORT` | `8000` |
+| `--api-key` | `OH_API_KEY` | — (required) |
+| `--base-url` | `OH_API_BASE` | `https://app.all-hands.dev` |
+| `--sandbox-spec-id` | `SANDBOX_SPEC_ID` | none (account default image) |
+| `--message` | — | `Say hello in one short sentence, then stop.` |
+| `--poll-timeout` | `POLL_TIMEOUT` | `180` (sandbox / start-task) |
 | `--idle-threshold` | — | `15` (seconds) |
 | `--poll-interval` | — | `3` (seconds) |
 | `--watch-timeout` | — | `180` |
-| `--keep` | — | off (container removed at end) |
+| `--keep` | — | off (deletes the sandbox at the end) |
 
 ## What it prints
 
 ```
-container: 049e77ec611b
-health: ok
-baseline /server_info: idle_time=1.0s runtime_idle_timeout_seconds=None
-conversation: b9c0b61d-a924-47c1-ae1b-a79035967925
+sandbox: 2UqRNuFbMFhgLLntVnla5k
+  sandbox status: RUNNING
+agent: https://tsjascgdpnrkidek.prod-runtime.all-hands.dev
+baseline /server_info: idle_time=101.0s runtime_idle_timeout_seconds=1200.0
+
+=== attaching conversation (start-task poll) ===
+  start-task status: SETTING_UP_SKILLS
+  start-task status: STARTING_CONVERSATION
+  start-task status: READY
+conversation: be8a7d2965f34f85b142e3ee44ed188b
 
 polling /server_info.idle_time every 3.0s; declaring idle at > 15.0s
 
-  idle_time=  0.0s  uptime=1.0s
-  idle_time=  3.0s  uptime=4.0s
-  idle_time=  6.0s  uptime=7.0s     # climbing while nothing runs yet
-  idle_time=  9.0s  uptime=10.0s
-  idle_time= 12.0s  uptime=13.0s
-  idle_time=  1.0s  uptime=16.0s    # drops when the agent acts
-  idle_time=  4.0s  uptime=19.0s
-  idle_time=  7.0s  uptime=22.0s
-  idle_time= 10.0s  uptime=25.0s
-  idle_time= 13.0s  uptime=28.0s
-  idle_time= 16.0s  uptime=31.0s    # climbs again after the agent stops
+  idle_time=  0.0s  uptime=134.0s
+  idle_time=  3.0s  uptime=137.0s
+  idle_time=  1.0s  uptime=140.0s     # drops when the agent acts
+  idle_time=  4.0s  uptime=143.0s
+  idle_time=  7.0s  uptime=146.0s
+  idle_time= 10.0s  uptime=149.0s
+  idle_time= 13.0s  uptime=152.0s
+  idle_time= 16.0s  uptime=155.0s     # climbs after the agent stops
 
 agent idle: idle_time exceeded 15.0s — the workspace has gone quiet.
 (this is the same signal runtime-api uses to reap sandboxes; for a
 per-conversation terminal state use execution_status)
-removed container oh-idle-demo
+
+Cleaning up sandbox…
 ```
+
+## Running locally without Cloud
+
+The audience for this example is **Cloud**. If you have no Cloud account, pass
+`--local` to start an agent-server in Docker and poll it directly:
+
+```bash
+docker must be running
+pip install requests
+
+export LLM_API_KEY=...                     # required in --local mode
+export LLM_MODEL=litellm_proxy/...         # required in --local mode
+export LLM_BASE_URL=https://...            # optional (provider default if unset)
+
+python idle_poll.py --local
+```
+
+The only differences in `--local` mode: the script `docker run`s the
+`ghcr.io/openhands/agent-server:latest-python` image, creates the conversation
+directly on the agent-server (`POST /api/conversations`, which needs an LLM key),
+and reads `/server_info` at `http://localhost:8000`. Note that
+`runtime_idle_timeout_seconds` is **`null`** locally — there is no platform
+reaper — so only the `idle_time` heartbeat is meaningful. Local-only flags:
+`--llm-api-key`, `--llm-model`, `--llm-base-url`, `--session-key`, `--image`,
+`--server-port`, `--container-name`.
 
 ## Notes
 
@@ -143,20 +165,18 @@ removed container oh-idle-demo
   reporting completion.
 - **Threshold choice.** Set `--idle-threshold` well above your longest expected
   gap between agent actions (LLM latency, long tool calls), or you will declare
-  "idle" mid-run. The platform's default (`runtime_idle_timeout_seconds`) is
-  deliberately large for this reason.
-- **Cloud:** call `GET <agent-server-url>/server_info` with the sandbox's
-  `session_api_key`. No webhook injection or socket needed — it is a plain read.
-- Full agent-server schema: `http://localhost:<server-port>/openapi.json`.
+  "idle" mid-run. The platform's default (`runtime_idle_timeout_seconds`, ~1200s
+  on Cloud) is deliberately large for this reason.
+- Full agent-server schema: `<agent-url>/openapi.json`.
 
 ## Related
 
-- [`websocket-events`](../websocket-events/) — authoritative per-conversation
-  terminal state over the WebSocket (push)
+- [`watch-terminal-state`](../watch-terminal-state/) — authoritative
+  per-conversation terminal state over the WebSocket (push)
 - [`react-to-state-websocket`](../react-to-state-websocket/) — react to *every*
-  `execution_status` transition over the WebSocket, on the Cloud substrate
+  `execution_status` transition over the WebSocket
 - [`react-to-state-webhooks`](https://github.com/jpshackelford/oh-examples/pull/22)
   (proposed) — state changes pushed from the server via `WebhookSpec`
-  (local-only)
-- [`start-sandbox`](../start-sandbox/) — how to reach a Cloud sandbox's
-  agent-server URL + session key
+  (local agent-server only)
+- [`start-sandbox`](../start-sandbox/) — the sandbox lifecycle this example
+  builds on
