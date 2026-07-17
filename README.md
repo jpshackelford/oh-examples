@@ -12,6 +12,7 @@ A collection of example code for working with the OpenHands API.
 | [start-sandbox](./start-sandbox/) | Start a sandbox (no conversation) and run commands via the agent-server REST API |
 | [test-mcp-config](./test-mcp-config/) | Validate **MCP server configs** (connection/auth) against a sandbox's agent-server via `POST /api/mcp/test`, before using them in a conversation |
 | [clone-and-attach](./clone-and-attach/) | Clone a repo + run `.openhands/setup.sh` in a sandbox, then attach a conversation to it |
+| [react-to-state-websocket](./react-to-state-websocket/) | React to conversation `execution_status` changes over the agent-server **WebSocket** (`/sockets/events/{id}`) instead of polling |
 | [upload-skills](./upload-skills/) | Upload a local agent-skills directory into a sandbox, then start a conversation that uses them |
 | [load-plugin](./load-plugin/) | Minimal: start a conversation with a plugin pre-loaded via the REST API |
 | [launch-plugin-badge](./launch-plugin-badge/) | Build a no-code `/launch` link, HTML button, or README badge that loads a plugin |
