@@ -16,6 +16,8 @@ A collection of example code for working with the OpenHands API.
 | [load-plugin](./load-plugin/) | Minimal: start a conversation with a plugin pre-loaded via the REST API |
 | [launch-plugin-badge](./launch-plugin-badge/) | Build a no-code `/launch` link, HTML button, or README badge that loads a plugin |
 | [finish-callback](./finish-callback/) | Notify an external URL the moment a conversation finishes with a **Stop hook** (push instead of poll); includes a local receiver server to prove the end-to-end flow |
+| [websocket-events](./websocket-events/) | Detect a conversation's **terminal `execution_status`** in real time over the agent-server **WebSocket** (`/sockets/events/{id}`) — push, no polling; the Cloud-friendly alternative to server-side webhooks |
+| [server-info-idle](./server-info-idle/) | Poll `GET /server_info.idle_time` — the **same idle signal `runtime-api` uses to reap sandboxes** — to detect when the workspace has gone quiet |
 | [command-blacklist](./command-blacklist/) | Block dangerous shell commands with PreToolUse hooks (blacklist approach with snarky messages) |
 | [command-whitelist](./command-whitelist/) | Only allow approved shell commands with PreToolUse hooks (whitelist approach for strict security) |
 | [workspace-isolation](./workspace-isolation/) | **Advanced:** Enforce directory boundaries with hooks - prevent agents from navigating/writing outside assigned workspace (based on jpshackelford/lxa) |
