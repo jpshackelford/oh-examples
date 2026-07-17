@@ -1,34 +1,26 @@
 #!/usr/bin/env python3
-"""React to conversation state changes over a WebSocket (no polling).
+"""Attach a conversation via the Cloud API, then watch its state over a socket.
 
-Starts an OpenHands sandbox via the Cloud API, opens a conversation on the
-sandbox's agent-server, then subscribes to that conversation's event stream
-over a WebSocket. Instead of polling ``execution_status`` on a REST loop, the
-script blocks on the socket and prints each state transition as it arrives —
-``running`` -> ``finished`` (or ``error``) — the moment the agent-server emits
-it.
+This is the "no LLM key" approach. The conversation is created through the
+**Cloud app server** (``POST /api/v1/app-conversations`` with a ``sandbox_id``),
+so the Cloud layer injects your account's configured LLM credentials — you never
+pass a model or API key. The trade-off: that call is asynchronous and returns a
+*start task*, so there is a brief poll of ``start-tasks`` to learn the
+conversation id before the socket can be opened.
 
-This is the event-driven alternative to the polling loops used elsewhere in
-this repo (see ``start-sandbox`` and ``clone-and-attach``). It works against
-OpenHands Cloud because the agent-server's ``/sockets/events/{id}`` endpoint is
-reachable through the same public URL as its REST API.
+Once the id is known, it connects to the sandbox agent-server's WebSocket
+(``/sockets/events/{id}``) and reacts to ``execution_status`` transitions as they
+arrive — no polling of the conversation's execution state.
+
+Compare with ``watch_direct.py``, which avoids the start-task poll by creating
+the conversation straight on the agent-server, at the cost of supplying LLM
+credentials. See the README for the full trade-off.
 
     export OH_API_KEY=...            # Cloud API key (required)
     pip install requests websockets
-    python watch_conversation.py
+    python watch_attach.py
 
-    # or override anything:
-    python watch_conversation.py \
-        --base-url https://app.all-hands.dev \
-        --sandbox-spec-id <spec> \
-        --message "List the files in /workspace/project" \
-        --poll-timeout 240
-
-Env vars: OH_API_KEY, OH_API_BASE, SANDBOX_SPEC_ID, LLM_MODEL, POLL_TIMEOUT.
-
-Note: creating the *sandbox* is still an async provisioning step, so step 2
-polls ``GET /sandboxes?id=`` until ``RUNNING`` (that is sandbox lifecycle, not
-conversation state). Everything about the *conversation* is event-driven.
+Env vars: OH_API_KEY, OH_API_BASE, SANDBOX_SPEC_ID, POLL_TIMEOUT.
 """
 
 import argparse
@@ -70,29 +62,10 @@ def parse_args() -> argparse.Namespace:
         help="Initial user message for the conversation.",
     )
     p.add_argument(
-        "--llm-model",
-        default=os.environ.get("LLM_MODEL", "gpt-4o-mini"),
-        help="Model the sandbox agent should use (default: $LLM_MODEL or gpt-4o-mini).",
-    )
-    p.add_argument(
-        "--llm-api-key",
-        default=os.environ.get("LLM_API_KEY"),
-        help=(
-            "API key for the LLM (default: $LLM_API_KEY). Required: a conversation "
-            "created directly on the agent-server does not inherit any Cloud LLM "
-            "credentials, so you must supply your own."
-        ),
-    )
-    p.add_argument(
-        "--llm-base-url",
-        default=os.environ.get("LLM_BASE_URL"),
-        help="Optional custom LLM base URL / proxy endpoint (default: $LLM_BASE_URL).",
-    )
-    p.add_argument(
         "--poll-timeout",
         type=int,
         default=int(os.environ.get("POLL_TIMEOUT", "180")),
-        help="Seconds to wait for the sandbox to reach RUNNING (default: 180).",
+        help="Seconds to wait for the sandbox / start task (default: 180).",
     )
     p.add_argument(
         "--keep",
@@ -148,50 +121,59 @@ def agent_server_url(sandbox: dict) -> str:
     return url
 
 
-def build_llm(model: str, api_key: str | None, base_url: str | None) -> dict:
-    """Assemble the ``llm`` block for a conversation-start request."""
-    llm: dict = {"model": model, "service_id": "agent"}
-    if api_key:
-        llm["api_key"] = api_key
-    if base_url:
-        llm["base_url"] = base_url
-    return llm
+def attach_conversation(
+    base_url: str, headers: dict, sandbox_id: str, message: str, timeout: int
+) -> str:
+    """POST /api/v1/app-conversations with sandbox_id; poll start-task for its id.
 
-
-def start_conversation(agent_url: str, session: dict, message: str, llm: dict) -> str:
-    """POST /api/conversations on the agent server; return the conversation id.
-
-    Providing ``initial_message`` makes the agent-server start running the
-    conversation immediately, so there is no separate "run" call to make. We
-    subscribe with ``resend_mode=all`` (see ``watch_states``) so any transitions
-    that happen between create and connect are replayed rather than missed.
+    The Cloud attach call is asynchronous: it returns a *start task*, not the
+    conversation. We poll /api/v1/app-conversations/start-tasks until it yields
+    an app_conversation_id. This is provisioning latency, not conversation-state
+    polling — once we have the id, state is watched over the socket.
     """
-    body = {
-        "workspace": {"kind": "LocalWorkspace", "working_dir": "/workspace/project"},
-        "agent": {"kind": "Agent", "llm": llm},
+    payload = {
+        "sandbox_id": sandbox_id,
         "initial_message": {
             "role": "user",
             "content": [{"type": "text", "text": message}],
         },
+        "title": "react-to-state-websocket (attach)",
     }
     resp = requests.post(
-        f"{agent_url}/api/conversations", headers=session, json=body, timeout=60
+        f"{base_url}/api/v1/app-conversations", headers=headers, json=payload
     )
     resp.raise_for_status()
-    return resp.json()["id"]
+    task = resp.json()
+    conv_id = task.get("app_conversation_id")
+    task_id = task["id"]
+
+    deadline = time.monotonic() + timeout
+    while not conv_id:
+        if time.monotonic() > deadline:
+            raise TimeoutError("start task did not yield a conversation id in time")
+        time.sleep(2)
+        resp = requests.get(
+            f"{base_url}/api/v1/app-conversations/start-tasks",
+            headers=headers,
+            params={"ids": task_id},
+        )
+        resp.raise_for_status()
+        items = resp.json()
+        item = items[0] if isinstance(items, list) else items
+        print("  start-task status:", item.get("status"))
+        conv_id = item.get("app_conversation_id")
+    return conv_id
 
 
 async def watch_states(
-    agent_url: str,
-    session_api_key: str,
-    conversation_id: str,
+    agent_url: str, session_api_key: str, conversation_id: str
 ) -> None:
     """Subscribe to the event stream and react to state transitions.
 
     Connects to ``wss://{agent}/sockets/events/{id}`` and authenticates with a
     first-message ``auth`` frame (keeps the key out of the URL and proxy logs).
     ``resend_mode=all`` replays events already produced since the conversation
-    started, closing the create→connect race without any polling. Returns once a
+    started, closing the create->connect race without polling. Returns once a
     terminal execution status arrives.
     """
     ws_base = agent_url.replace("https://", "wss://").replace("http://", "ws://")
@@ -227,12 +209,9 @@ def main() -> None:
     args = parse_args()
     if not args.api_key:
         sys.exit("error: set --api-key or the OH_API_KEY environment variable")
-    if not args.llm_api_key:
-        sys.exit("error: set --llm-api-key or the LLM_API_KEY environment variable")
     headers = {"X-Session-API-Key": args.api_key}
-    llm = build_llm(args.llm_model, args.llm_api_key, args.llm_base_url)
 
-    # 1. Start sandbox (no conversation yet).
+    # 1. Start sandbox.
     sb = start_sandbox(args.base_url, headers, args.sandbox_spec_id)
     sid = sb["id"]
     print("sandbox:", sid)
@@ -241,19 +220,21 @@ def main() -> None:
     sb = wait_until_running(args.base_url, headers, sid, args.poll_timeout)
 
     try:
-        # 3. Locate the agent-server URL + per-sandbox session key.
         agent_url = agent_server_url(sb)
         session_api_key = sb["session_api_key"]
-        session = {"X-Session-API-Key": session_api_key}
         print("agent:", agent_url)
 
-        # 4. Create the conversation. With an initial_message it starts running
-        #    immediately.
-        conv_id = start_conversation(agent_url, session, args.message, llm)
+        # 3. Attach a conversation via the Cloud API. No LLM key needed — the
+        #    Cloud layer injects your account's credentials. This is async, so
+        #    we briefly poll the start task for the conversation id.
+        print("\n=== attaching conversation (start-task poll) ===")
+        conv_id = attach_conversation(
+            args.base_url, headers, sid, args.message, args.poll_timeout
+        )
         print("conversation:", conv_id)
 
-        # 5. Subscribe over WebSocket and react to state changes as they stream
-        #    in — no conversation-state polling.
+        # 4. Subscribe over WebSocket and react to state changes — no
+        #    conversation-state polling.
         print("\n=== watching conversation state (WebSocket) ===")
         asyncio.run(watch_states(agent_url, session_api_key, conv_id))
         print("=== done ===")

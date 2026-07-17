@@ -1,22 +1,39 @@
 # React to conversation state changes over a WebSocket
 
-A short script that reacts to OpenHands conversation state changes **as they
-happen**, instead of polling a REST endpoint in a loop. It starts a sandbox,
-opens a conversation on the sandbox's agent-server, then subscribes to that
-conversation's event stream over a WebSocket and prints each
+Two short scripts that react to OpenHands conversation state changes **as they
+happen**, instead of polling a REST endpoint in a loop. Each starts a sandbox,
+gets a conversation running on the sandbox's agent-server, then subscribes to
+that conversation's event stream over a WebSocket and prints every
 `execution_status` transition (`running` → `finished`/`error`) the moment the
 agent-server emits it.
 
 This is the event-driven counterpart to the polling loops in
 [`start-sandbox`](../start-sandbox/) and [`clone-and-attach`](../clone-and-attach/),
 which repeatedly `GET` the status until it changes. Here nothing polls the
-*conversation* — the script blocks on the socket and is woken by the server.
+*conversation's execution state* — the script blocks on the socket and is woken
+by the server.
 
-> Looking to react to state changes from **outside** the sandbox (e.g. a
-> service that receives an HTTP callback), rather than holding a socket open?
-> That needs the agent-server's outbound **webhooks**, which can only be
-> configured on an agent-server you run yourself — see the **Notes** at the
-> bottom.
+## Two ways to get the conversation running
+
+Both scripts watch state identically over the same WebSocket. They differ only
+in **how the conversation is created**, and that choice comes with a genuine
+trade-off:
+
+| Script | Creates the conversation via | LLM credentials | Start-task poll |
+|--------|------------------------------|-----------------|-----------------|
+| [`watch_attach.py`](./watch_attach.py) | **Cloud** `POST /api/v1/app-conversations` (attach to sandbox) | **Not needed** — the Cloud layer injects your account's LLM | **Required** — the call is async and returns a *start task*, so you poll `start-tasks` for the conversation id |
+| [`watch_direct.py`](./watch_direct.py) | **Agent-server** `POST /api/conversations` | **Required** — a direct conversation inherits no Cloud LLM creds, so you pass `--llm-model` / `--llm-api-key` | **Not needed** — the id is returned synchronously |
+
+In one sentence: **if you want to avoid passing an LLM key, you accept a brief
+start-task poll; if you want to avoid the poll, you accept passing an LLM key.**
+Neither poll is on the *conversation's execution state* — that is always
+event-driven. `watch_attach.py`'s poll is provisioning latency (waiting for the
+sandbox to prepare skills/repo and start the conversation); once it hands back an
+id, the socket takes over.
+
+> Both approaches attach to a sandbox first, exactly like
+> [`clone-and-attach`](../clone-and-attach/) — the WebSocket lives on the
+> sandbox's agent-server regardless of which endpoint created the conversation.
 
 ## APIs used
 
@@ -27,6 +44,10 @@ which repeatedly `GET` the status until it changes. Here nothing polls the
 - Endpoints:
   - `POST /api/v1/sandboxes` — start a sandbox (optional `?sandbox_spec_id=…`)
   - `GET  /api/v1/sandboxes?id=<id>` — batch-get sandboxes by id
+  - `POST /api/v1/app-conversations` — **attach** a conversation to a sandbox
+    (`watch_attach.py` only); returns a start task
+  - `GET  /api/v1/app-conversations/start-tasks?ids=<id>` — poll for the
+    `app_conversation_id` (`watch_attach.py` only)
   - `DELETE /api/v1/sandboxes/{id}?sandbox_id=<id>` — clean up
 
 ### 2. Agent Server — runs inside the sandbox
@@ -35,11 +56,11 @@ which repeatedly `GET` the status until it changes. Here nothing polls the
 - Auth header: `X-Session-API-Key: <session_api_key>` returned by the
   sandbox-create call (different from your Cloud API key).
 - Endpoints:
-  - `POST /api/conversations` — create a conversation. The body requires a
-    `workspace` and an `agent` (with an `llm`); an `initial_message` makes it
-    start running immediately.
+  - `POST /api/conversations` — create a conversation directly
+    (`watch_direct.py` only). Body requires a `workspace` and an `agent` (with
+    an `llm`); an `initial_message` makes it start running immediately.
   - `GET  /sockets/events/{conversation_id}` — **WebSocket** event stream. This
-    is the star of the example. Authenticate by sending
+    is the shared star of both scripts. Authenticate by sending
     `{"type": "auth", "session_api_key": "…"}` as the first frame. Add
     `?resend_mode=all` to replay events already produced since the conversation
     started (this closes the create→connect race without polling).
@@ -50,17 +71,16 @@ which repeatedly `GET` the status until it changes. Here nothing polls the
 ## The flow
 
 ```
-POST /api/v1/sandboxes                          # 1. start a sandbox
-GET  /api/v1/sandboxes?id=<id>                  # 2. poll until status == RUNNING
-POST {agent}/api/conversations                  # 3. create conversation (auto-runs)
-WS   {agent}/sockets/events/<id>?resend_mode=all # 4. subscribe + react to states
-DELETE /api/v1/sandboxes/<id>?sandbox_id=<id>   # 5. clean up
+                          ┌─ watch_attach.py ────────────────────────────────┐
+POST /api/v1/sandboxes    │ POST /api/v1/app-conversations  (attach)          │
+GET  …/sandboxes?id=<id>  │ GET  …/start-tasks?ids=<id>     (poll for id)      │
+  (until RUNNING)         └───────────────────────────────────────────────────┘
+                          ┌─ watch_direct.py ────────────────────────────────┐
+                          │ POST {agent}/api/conversations  (id returned now) │
+                          └───────────────────────────────────────────────────┘
+WS   {agent}/sockets/events/<id>?resend_mode=all   # react to states (shared)
+DELETE /api/v1/sandboxes/<id>?sandbox_id=<id>      # clean up
 ```
-
-Steps 1, 2 and 5 use the **Cloud app server** (`X-Session-API-Key: <OH_API_KEY>`).
-Steps 3–4 use the sandbox's **agent server**
-(`X-Session-API-Key: <session_api_key>`). See
-[`start-sandbox`](../start-sandbox/) for more on the two-server split.
 
 ### Why the WebSocket instead of polling?
 
@@ -68,16 +88,43 @@ The agent-server emits a `ConversationStateUpdateEvent` with
 `key == "execution_status"` on every transition. Subscribing means you learn
 about `finished` (or `error`/`stuck`) the instant it happens, with no request
 spam and no latency floor set by your poll interval. The socket also carries the
-other events (`MessageEvent`, `ActionEvent`, `ObservationEvent`, …) if you want
-to follow the agent's work in real time.
+other events (`MessageEvent`, `ActionEvent`, `StreamingDeltaEvent`, …) if you
+want to follow the agent's work in real time.
 
-## What it prints
+## What they print
+
+`watch_attach.py` (note the short start-task poll, then the socket):
 
 ```
-sandbox: 7R2qWtlDGkJHrSa6MAYC4i
+sandbox: 6MTcHjsITPtO09W0yYLHSd
   sandbox status: RUNNING
-agent: https://pnefuieussllvggl.prod-runtime.all-hands.dev
-conversation: e7e243fc-60ce-4744-aee7-1962addc6654
+agent: https://zztaextwktekrdgh.prod-runtime.all-hands.dev
+
+=== attaching conversation (start-task poll) ===
+  start-task status: SETTING_UP_SKILLS
+  start-task status: STARTING_CONVERSATION
+  start-task status: READY
+conversation: b04bc6236d8745d7a83b2e2d3714f1a9
+
+=== watching conversation state (WebSocket) ===
+  .. SystemPromptEvent
+  .. MessageEvent
+  >> execution_status: running
+  .. StreamingDeltaEvent
+  .. MessageEvent
+  >> execution_status: finished
+=== done ===
+
+Cleaning up sandbox…
+```
+
+`watch_direct.py` (no start-task poll; id is immediate):
+
+```
+sandbox: 1ChU3JfCyeKY2hprWBIQ8n
+  sandbox status: RUNNING
+agent: https://aurgryilvhwboigr.prod-runtime.all-hands.dev
+conversation: 1239717a-0396-435b-bfb8-f0b857891fd7
 
 === watching conversation state (WebSocket) ===
   .. SystemPromptEvent
@@ -94,21 +141,26 @@ Cleaning up sandbox…
 
 ```bash
 export OH_API_KEY=...        # your https://app.all-hands.dev API key
-export LLM_API_KEY=...       # key for the model the sandbox agent will call
 pip install requests websockets
-
-python watch_conversation.py
 ```
 
-A conversation created directly on the agent-server does **not** inherit any
-Cloud LLM credentials, so you must pass your own model + key:
+**No LLM key (Cloud attach):**
 
 ```bash
-python watch_conversation.py \
-    --llm-model "gpt-4o-mini" \
-    --llm-api-key "$LLM_API_KEY" \
-    --message "List the files in /workspace/project"
+python watch_attach.py --message "List the files in /workspace/project"
 ```
+
+**No start-task poll (agent-server direct):** a conversation created directly on
+the agent-server does not inherit Cloud LLM credentials, so pass your own:
+
+```bash
+export LLM_API_KEY=...
+python watch_direct.py --llm-model "gpt-4o-mini" --message "Say hello, then stop."
+```
+
+### Flags
+
+Shared by both scripts:
 
 | Flag | Env var | Default |
 |------|---------|---------|
@@ -116,20 +168,52 @@ python watch_conversation.py \
 | `--base-url` | `OH_API_BASE` | `https://app.all-hands.dev` |
 | `--sandbox-spec-id` | `SANDBOX_SPEC_ID` | none (account default image) |
 | `--message` | — | `Say hello, then stop.` |
+| `--poll-timeout` | `POLL_TIMEOUT` | `180` (seconds) |
+| `--keep` | — | off (deletes the sandbox at the end) |
+
+`watch_direct.py` also takes:
+
+| Flag | Env var | Default |
+|------|---------|---------|
 | `--llm-model` | `LLM_MODEL` | `gpt-4o-mini` |
 | `--llm-api-key` | `LLM_API_KEY` | — (required) |
 | `--llm-base-url` | `LLM_BASE_URL` | none |
-| `--poll-timeout` | `POLL_TIMEOUT` | `180` (seconds) |
-| `--keep` | — | off (deletes the sandbox at the end) |
 
 By default the sandbox is deleted when the script exits. Pass `--keep` to leave
 it running and print the `DELETE` command instead.
 
+## Another option: react from *inside* the sandbox with hooks
+
+The WebSocket approach is for a client that holds a connection open and reacts
+**externally**. If instead you want the sandbox itself to act on a lifecycle
+event — notify a URL, run setup, gate an action — you can use **lifecycle
+hooks** delivered by a plugin. Hooks run inside the agent-server on events like
+`SessionStart`, `PreToolUse`, `PostToolUse`, and `Stop`, so there is nothing to
+poll and no socket to keep open.
+
+Two examples in this repo show the pattern:
+
+- [`finish-callback`](../finish-callback/) — a **`Stop` hook** that `POST`s to a
+  URL you control the moment a conversation finishes. This is the closest
+  analogue to "tell me when it's done" without a held-open socket: the sandbox
+  pushes to you. (It also documents the callback-plus-polling hybrid for
+  reliability.)
+- [`gpg-commit-signing`](../gpg-commit-signing/) — a **`SessionStart` hook** that
+  configures the environment at the start of *every* conversation, illustrating
+  the "run something on a lifecycle event" shape more generally.
+
+Rule of thumb: use the **WebSocket** (this example) when an external client
+needs to follow state live; use **hooks** (a plugin) when the reaction should
+happen inside the sandbox on a specific lifecycle event. See the
+[OpenHands Hooks Guide](https://docs.openhands.dev/sdk/guides/hooks.md) for the
+full list of hook types and their blocking semantics.
+
 ## Notes
 
-- **Only the sandbox is polled, and only for provisioning.** Step 2 waits for
-  `RUNNING` because that is sandbox lifecycle, not conversation state. Once the
-  agent-server is up, the conversation is entirely event-driven.
+- **Only the sandbox (and, for `watch_attach.py`, the start task) is polled, and
+  only for provisioning.** Waiting for `RUNNING` / `READY` is lifecycle, not
+  conversation execution state. Once the agent-server is up and the id is known,
+  the conversation is entirely event-driven.
 - **First-frame auth** keeps the session key out of the URL (and therefore out
   of reverse-proxy / load-balancer access logs). A deprecated
   `?session_api_key=…` query parameter also works but is not recommended.
@@ -138,17 +222,19 @@ it running and print the `DELETE` command instead.
   before the socket connects. Replaying them means the example never misses the
   first `running`. Use `resend_mode=since&after_timestamp=…` if you have already
   fetched history over REST and only want newer events.
-- **Terminal states.** The script stops at `finished`, `error`, or `stuck`. The
+- **Terminal states.** The scripts stop at `finished`, `error`, or `stuck`. The
   full set of `ConversationExecutionStatus` values is `idle`, `running`,
   `paused`, `waiting_for_confirmation`, `finished`, `error`, `stuck`,
   `deleting`.
-- **Webhooks (reacting from outside, no held-open socket).** The agent-server
-  can also *push* to an HTTP endpoint you host — `POST {base_url}/conversations`
-  on start/pause/resume/stop and `POST {base_url}/events/{id}` for event
-  batches. That is a better fit when an external service, not a long-lived
-  client, needs to react. However, those webhooks are supplied via the
-  agent-server's startup config or `POST /api/init`, and **OpenHands Cloud
-  sandboxes run with `deferred_init=False`** — `/api/init` returns `404` and
-  there is no way to inject webhook config. So webhooks require an agent-server
-  you run yourself (e.g. via Docker). The WebSocket approach in this example is
-  the one that works against Cloud.
+- **Webhooks (reacting from an external service, no held-open socket).** The
+  agent-server can also *push* to an HTTP endpoint you host —
+  `POST {base_url}/conversations` on start/pause/resume/stop and
+  `POST {base_url}/events/{id}` for event batches. That is a good fit when an
+  external service, not a long-lived client, needs to react. However, those
+  webhooks are supplied via the agent-server's startup config or
+  `POST /api/init`, and **OpenHands Cloud sandboxes run with
+  `deferred_init=False`** — `/api/init` returns `404` and there is no way to
+  inject webhook config. So agent-server webhooks require an agent-server you run
+  yourself (e.g. via Docker). On Cloud, use the WebSocket here, or the in-sandbox
+  **`Stop` hook** in [`finish-callback`](../finish-callback/) for a push-style
+  finish notification.
