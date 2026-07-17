@@ -4,14 +4,18 @@ A collection of example code for working with the OpenHands API.
 
 ## Examples
 
-Examples are grouped by topic. Jump to a section:
+Examples are grouped by topic. Some examples span more than one topic and are
+listed in every section that fits, so a given example may appear more than once.
+
+Jump to a section:
 
 - [Sandbox lifecycle](#sandbox-lifecycle)
 - [Conversation monitoring & reacting](#conversation-monitoring--reacting)
 - [Secrets & authentication](#secrets--authentication)
 - [Plugins, skills & MCP](#plugins-skills--mcp)
 - [Custom agents & tools](#custom-agents--tools)
-- [Guardrails & hooks](#guardrails--hooks)
+- [Guardrails](#guardrails)
+- [Hooks](#hooks)
 
 ### Sandbox lifecycle
 
@@ -54,6 +58,7 @@ Extend conversations with plugins, skills, and MCP servers.
 | [launch-plugin-badge](./launch-plugin-badge/) | Build a no-code `/launch` link, HTML button, or README badge that loads a plugin |
 | [upload-skills](./upload-skills/) | Upload a local agent-skills directory into a sandbox, then start a conversation that uses them |
 | [test-mcp-config](./test-mcp-config/) | Validate **MCP server configs** (connection/auth) against a sandbox's agent-server via `POST /api/mcp/test`, before using them in a conversation |
+| [per-conversation-secrets](./per-conversation-secrets/) | Template an **MCP server** config (`.mcp.json`) bundled in a plugin using per-conversation secrets injected via REST API (also listed under Secrets & authentication) |
 
 ### Custom agents & tools
 
@@ -65,7 +70,7 @@ Configure the agent and add custom tools.
 | [custom-agent-with-tool](./custom-agent-with-tool/) | Add custom server-side tools via source file upload + tool_module_qualnames |
 | [custom-agent-with-pip-tool](./custom-agent-with-pip-tool/) | Load a custom tool from a published pip package (pip install --target + tool_module_qualnames) |
 
-### Guardrails & hooks
+### Guardrails
 
 Constrain what the agent can do with PreToolUse hooks.
 
@@ -74,6 +79,19 @@ Constrain what the agent can do with PreToolUse hooks.
 | [command-blacklist](./command-blacklist/) | Block dangerous shell commands with PreToolUse hooks (blacklist approach with snarky messages) |
 | [command-whitelist](./command-whitelist/) | Only allow approved shell commands with PreToolUse hooks (whitelist approach for strict security) |
 | [workspace-isolation](./workspace-isolation/) | **Advanced:** Enforce directory boundaries with hooks - prevent agents from navigating/writing outside assigned workspace (based on jpshackelford/lxa) |
+
+### Hooks
+
+Examples that use agent hooks, grouped here by hook type. Each is also listed
+under its primary topic above.
+
+| Example | Hook | Description |
+|---------|------|-------------|
+| [command-blacklist](./command-blacklist/) | PreToolUse | Block dangerous shell commands (blacklist approach with snarky messages) |
+| [command-whitelist](./command-whitelist/) | PreToolUse | Only allow approved shell commands (whitelist approach for strict security) |
+| [workspace-isolation](./workspace-isolation/) | PreToolUse | **Advanced:** Enforce directory boundaries — prevent agents from navigating/writing outside assigned workspace |
+| [gpg-commit-signing](./gpg-commit-signing/) | SessionStart | Import a GPG key from a custom secret to sign commits on **every** conversation |
+| [finish-callback](./finish-callback/) | Stop | Notify an external URL the moment a conversation finishes (push instead of poll) |
 
 ## API Versions
 
