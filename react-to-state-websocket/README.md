@@ -245,8 +245,11 @@ full list of hook types and their blocking semantics.
   external service, not a long-lived client, needs to react. However, those
   webhooks are supplied via the agent-server's startup config or
   `POST /api/init`, and **OpenHands Cloud sandboxes run with
-  `deferred_init=False`** — `/api/init` returns `404` and there is no way to
-  inject webhook config. So agent-server webhooks require an agent-server you run
+  `deferred_init=False`** — so there is no way to inject webhook config.
+  `GET /api/init` makes this explicit, returning `404` with the message
+  `server is not running with deferred_init=True; the /api/init endpoint is not
+  available` (a `POST` is rejected at the auth layer first with `401`). So
+  agent-server webhooks require an agent-server you run
   yourself (e.g. via Docker). On Cloud, use the WebSocket here, or the in-sandbox
   **`Stop` hook** in [`finish-callback`](../finish-callback/) for a push-style
   finish notification.
