@@ -1,0 +1,19 @@
+{
+  "name": "gpg-signer",
+  "version": "1.0.0",
+  "description": "Configure GPG commit signing at the start of every conversation via a SessionStart hook. Imports a private key from a custom secret and sets git to sign commits/tags globally, so signing works even when no repository was selected at conversation start.",
+  "license": "MIT",
+  "keywords": ["git", "gpg", "signing", "hooks", "session-start", "secrets", "example"],
+  "examples": [
+    {
+      "title": "Signing configured automatically",
+      "prompt": "Show me the output of `git config --global --get commit.gpgsign` and `git config --global --get user.signingkey`.",
+      "expected_behavior": "commit.gpgsign is true and user.signingkey is set — configured by the SessionStart hook (requires a `gpg_key` secret)."
+    },
+    {
+      "title": "Signed commit in a freshly cloned repo",
+      "prompt": "Clone https://github.com/octocat/Hello-World, make a trivial change, commit it, then run `git log --show-signature -1`.",
+      "expected_behavior": "The commit is GPG-signed ('Good signature'), proving signing applies to repos cloned after the conversation started."
+    }
+  ]
+}
