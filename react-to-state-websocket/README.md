@@ -71,11 +71,11 @@ id, the socket takes over.
 ## The flow
 
 ```
-                          ┌─ watch_attach.py ────────────────────────────────┐
+                          ┌─ watch_attach.py ─────────────────────────────────┐
 POST /api/v1/sandboxes    │ POST /api/v1/app-conversations  (attach)          │
-GET  …/sandboxes?id=<id>  │ GET  …/start-tasks?ids=<id>     (poll for id)      │
+GET  …/sandboxes?id=<id>  │ GET  …/start-tasks?ids=<id>     (poll for id)     │
   (until RUNNING)         └───────────────────────────────────────────────────┘
-                          ┌─ watch_direct.py ────────────────────────────────┐
+                          ┌─ watch_direct.py ─────────────────────────────────┐
                           │ POST {agent}/api/conversations  (id returned now) │
                           └───────────────────────────────────────────────────┘
 WS   {agent}/sockets/events/<id>?resend_mode=all   # react to states (shared)
