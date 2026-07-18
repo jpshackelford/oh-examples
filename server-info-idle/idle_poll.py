@@ -24,9 +24,7 @@ Cloud flow (the default):
 happened lately?" heartbeat — it does NOT distinguish finished / error / stuck,
 and it is what the platform itself uses for reaping. For an authoritative,
 per-conversation terminal signal use ``execution_status`` (see
-``../watch-terminal-state`` for the push version over the WebSocket, and the
-proposed react-to-state-webhooks example,
-https://github.com/jpshackelford/oh-examples/pull/22, for the webhook version).
+``../watch-terminal-state`` for the push version over the WebSocket).
 idle_time shines when you just want "the workspace has gone quiet" without
 subscribing to any conversation.
 

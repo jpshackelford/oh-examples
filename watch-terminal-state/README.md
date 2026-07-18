@@ -176,5 +176,3 @@ the agent-server URL + session key differs.
   `/server_info.idle_time` for "the workspace has gone quiet"
 - [`finish-callback`](../finish-callback/) — a Stop-hook callback on `FINISHED`
   (why per-field `finished` is advisory)
-- [`react-to-state-webhooks`](https://github.com/jpshackelford/oh-examples/pull/22)
-  (proposed) — push-from-server webhooks (local agent-server only)

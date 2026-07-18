@@ -53,7 +53,7 @@ They answer different questions — pick per your need:
 | **Question** | "Has the *workspace* gone quiet?" | "Is *this conversation* done?" |
 | **Granularity** | Server-wide heartbeat | Per-conversation state machine |
 | **Distinguishes finished / error / stuck?** | No | Yes (`is_terminal()`) |
-| **How to consume** | Poll `GET /server_info` | Push via [WebSocket](../watch-terminal-state/) / [webhook](https://github.com/jpshackelford/oh-examples/pull/22) |
+| **How to consume** | Poll `GET /server_info` | Push via [WebSocket](../watch-terminal-state/) |
 | **Used by the platform for** | Reaping idle sandboxes | Reporting run completion |
 
 Use `idle_time` when you just want "nothing is happening anymore" without
@@ -175,8 +175,5 @@ reaper — so only the `idle_time` heartbeat is meaningful. Local-only flags:
   per-conversation terminal state over the WebSocket (push)
 - [`react-to-state-websocket`](../react-to-state-websocket/) — react to *every*
   `execution_status` transition over the WebSocket
-- [`react-to-state-webhooks`](https://github.com/jpshackelford/oh-examples/pull/22)
-  (proposed) — state changes pushed from the server via `WebhookSpec`
-  (local agent-server only)
 - [`start-sandbox`](../start-sandbox/) — the sandbox lifecycle this example
   builds on
