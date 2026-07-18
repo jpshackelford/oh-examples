@@ -238,6 +238,14 @@ full list of hook types and their blocking semantics.
   full set of `ConversationExecutionStatus` values is `idle`, `running`,
   `paused`, `waiting_for_confirmation`, `finished`, `error`, `stuck`,
   `deleting`.
+- **Going deeper — is it *really* done?** These scripts read the per-field
+  `execution_status` and stop on the first `finished`, which is perfect for
+  reacting to transitions. If you specifically need to detect a **confirmed
+  terminal state** (a per-field `finished` is advisory — a Stop hook can revert
+  it), see [`watch-terminal-state`](../watch-terminal-state/). It builds on this
+  example's Cloud approach and adds handling for both
+  `ConversationStateUpdateEvent` shapes (per-field and `full_state`), plus
+  log-safe first-message auth.
 - **Webhooks (reacting from an external service, no held-open socket).** The
   agent-server can also *push* to an HTTP endpoint you host —
   `POST {base_url}/conversations` on start/pause/resume/stop and
