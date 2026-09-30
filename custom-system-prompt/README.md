@@ -42,7 +42,8 @@ appended to the dynamic context; you can set both.
 
 ```bash
 pip install requests
-export OH_API_KEY="your-cloud-api-key"   # from Profile → API Keys
+export OH_API_KEY="your-api-key"   # Cloud: Profile → API Keys.
+                                   # OHE: Settings → API Keys on your instance.
 ```
 
 You do **not** need to set LLM credentials — the App Server uses whatever
@@ -129,7 +130,9 @@ task_id = task["id"]
 
 Poll `/api/v1/app-conversations/start-tasks?ids=<task_id>` until the task
 reaches `READY` and hands back `app_conversation_id` (and, if the server
-provisioned one, `sandbox_id`).
+provisioned one, `sandbox_id`). The endpoint is a "search by ids"
+lookup — `ids` is a required, repeatable query parameter and the
+response is a JSON array of the matching tasks.
 
 ```python
 while not conv_id:
@@ -166,9 +169,10 @@ object — the actual prompt string is at `.text`.
 ### 4. Cleanup
 
 `DELETE /api/v1/app-conversations/{id}` frees the conversation. Delete the
-sandbox separately when you're done with it — the sandbox endpoint requires
-`sandbox_id` **both** in the path and as a query parameter (omitting the
-query parameter returns HTTP 422).
+sandbox separately when you're done with it. The sandbox delete endpoint
+is `DELETE /api/v1/sandboxes/{id}` and additionally requires `sandbox_id`
+as a query parameter — pass the same id in both places, or the server
+returns HTTP 422.
 
 ```python
 requests.delete(f"{base_url}/api/v1/app-conversations/{conv_id}", headers=headers)
