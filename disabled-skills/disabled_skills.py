@@ -110,9 +110,7 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--base-url",
-        default=os.environ.get(
-            "OH_API_BASE", "https://app.beta.staging.all-hands-testing.dev"
-        ),
+        default=os.environ.get("OH_API_BASE", "https://app.all-hands.dev"),
         help="Cloud app server base URL (env: OH_API_BASE).",
     )
     p.add_argument(

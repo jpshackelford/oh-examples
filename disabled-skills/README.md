@@ -103,8 +103,7 @@ Exit status is non-zero if any verification fails.
 
 ### Real output
 
-Captured against `https://app.beta.staging.all-hands-testing.dev` with
-`--per-request`:
+Captured against `https://app.all-hands.dev` with `--per-request`:
 
 ```
 === install account-level deny-list ===
