@@ -44,6 +44,24 @@ DEFAULT_PROMPT = (
 DEFAULT_MESSAGE = "In one short sentence, tell me what your role is."
 
 
+def _raise_for_status(resp: requests.Response) -> None:
+    """Like ``resp.raise_for_status()`` but prints the server's error body.
+
+    ``raise_for_status`` on its own only surfaces the status line, which
+    hides the server-side validation detail (``{"detail": [...]}`` on
+    4xx). Printing ``resp.text`` first turns a mystery 422 into an
+    actionable "you're missing this field" message for the caller.
+    """
+    if resp.ok:
+        return
+    print(
+        f"HTTP {resp.status_code} from {resp.request.method} {resp.url}\n"
+        f"  body: {resp.text[:2000]}",
+        file=sys.stderr,
+    )
+    resp.raise_for_status()
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Override the OpenHands system prompt via app conversation API.",
@@ -117,7 +135,7 @@ def start_conversation(
     resp = requests.post(
         f"{base_url}/api/v1/app-conversations", headers=headers, json=payload
     )
-    resp.raise_for_status()
+    _raise_for_status(resp)
     task = resp.json()
     task_id = task["id"]
     conv_id = task.get("app_conversation_id")
@@ -133,7 +151,7 @@ def start_conversation(
             headers=headers,
             params={"ids": task_id},
         )
-        resp.raise_for_status()
+        _raise_for_status(resp)
         item = resp.json()[0]
         status = item.get("status")
         print("  start-task status:", status)
@@ -161,7 +179,7 @@ def fetch_system_prompt_event(
             headers=headers,
             params={"kind__eq": "SystemPromptEvent", "limit": 1},
         )
-        resp.raise_for_status()
+        _raise_for_status(resp)
         items = resp.json().get("items") or []
         if items:
             return items[0]
@@ -174,8 +192,8 @@ def cleanup(base_url: str, headers: dict, conv_id: str, sandbox_id: str | None) 
     requests.delete(f"{base_url}/api/v1/app-conversations/{conv_id}", headers=headers)
     print("  deleted conversation", conv_id)
     if sandbox_id:
-        # The sandbox delete endpoint requires ``sandbox_id`` both in the path
-        # and as a query parameter; omitting the query param returns HTTP 422.
+        # DELETE /api/v1/sandboxes/{id} also requires sandbox_id as a
+        # query parameter; omitting it returns HTTP 422.
         requests.delete(
             f"{base_url}/api/v1/sandboxes/{sandbox_id}",
             headers=headers,
