@@ -50,7 +50,9 @@ takes the union of three sources, order-preserving, de-duplicated:
 A name absent from the discovered skill catalog is a **harmless no-op** —
 you can safely include speculative names without failing the request. Names
 are matched exactly (case-sensitive) against the `<name>` values returned by
-`GET /api/v1/skills/search`.
+`GET /api/v1/skills/search?q=<prefix>` (a bare call with no `q` returns
+microagents mixed in; pass a prefix like `?q=github` to see the skill names
+that appear in the `<SKILLS>` block).
 
 ## Prerequisites
 
@@ -331,7 +333,7 @@ recipes (workflows, monitors, watchdogs) if they're not for this team.
 ```
 
 Roll your own with `--disable name1 name2 name3`. Skill names come from
-`GET /api/v1/skills/search`.
+`GET /api/v1/skills/search?q=<prefix>`.
 
 ## Per-request escape hatch
 
@@ -369,7 +371,7 @@ and the request sends `[docker]`, the effective deny-list is
 | `/api/v1/conversation/{id}/events/search` | GET | Read `SystemPromptEvent` to verify |
 | `/api/v1/app-conversations/{id}` | DELETE | Delete the conversation |
 | `/api/v1/sandboxes/{id}?sandbox_id={id}` | DELETE | Delete the sandbox |
-| `/api/v1/skills/search` | GET | Discover valid skill names for the deny-list |
+| `/api/v1/skills/search?q=<prefix>` | GET | Discover valid skill names for the deny-list |
 
 All calls use `Authorization: Bearer <OH_API_KEY>`.
 
