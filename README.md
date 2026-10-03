@@ -1,3 +1,7 @@
+> [!IMPORTANT]
+> **This repository has moved to [OpenHands/enterprise-cookbook](https://github.com/OpenHands/enterprise-cookbook).**
+> This copy is archived and will not receive updates. Please open issues and pull requests in the new repository.
+
 # oh-examples
 
 A collection of example code for working with the OpenHands API.
